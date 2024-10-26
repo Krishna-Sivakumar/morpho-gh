@@ -1,0 +1,3 @@
+Microsoft.Data.SQLite
+Newtonsoft.Json
+Grasshopper(?)
