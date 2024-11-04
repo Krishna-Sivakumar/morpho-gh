@@ -15,7 +15,7 @@ using Newtonsoft.Json;
 namespace ghplugin
 {
 
-    public class SaveToDisk : GH_Component
+    public class Fitness : GH_Component
     {
         // private SqliteConnection DBConnection;
 
@@ -32,9 +32,9 @@ namespace ghplugin
         /// Subcategory the panel. If you use non-existing tab or panel names, 
         /// new tabs/panels will automatically be created.
         /// </summary>
-        public SaveToDisk()
-          : base("Save to Disk", "Save to Disk",
-            "Saves aggregated data to disk.",
+        public Fitness()
+          : base("Fitness", "Fitness",
+            "",
             "Morpho", "Genetic Search")
         {
         }
@@ -188,96 +188,6 @@ namespace ghplugin
                 // if anything turns null, return without failing
                 return;
             }
-
-            // BEGIN Writing to Local DB
-            /*
-
-            DBConnection = new SqliteConnection($"Data Source={directory}/solutions.db");
-            DBConnection.Open();
-
-            string createTableLayoutQuery = "CREATE TABLE IF NOT EXISTS project_layout (project_name text primary key, parameters jsonb)";
-            string createProjectTableQuery = "CREATE TABLE IF NOT EXISTS $projectName (data_id integer primary key auto increment, data jsonb not null)";
-            string createAssetTableQuery = "CREATE TABLE IF NOT EXISTS $projectName_assets (asset_id integer primary key auto increment, data blob not null, tag text not null, data_id integer, foreign key(data_id) references {projectName}(data_id)";
-            string getTableLayoutQuery = "SELECT parameters FROM project_layout WHERE project_name=$projectName";
-            string insertSolutionQuery = "INSERT INTO $projectName (data) VALUES ($data)";
-            string getSolutionIdQuery = "SELECT data_id FROM $projectName WHERE data = $data";
-            string insertAssetQuery = $"INSERT INTO $projectName_assets(data, tag, data_id) values ($data, $tag, $data_id)";
-
-            var status = executeCreateQuery(createTableLayoutQuery);
-            // ERROR CHECKING REQUIRED
-
-            status = executeCreateQuery(createProjectTableQuery, projectName);
-            // ERROR CHECKING REQUIRED
-
-            status = executeCreateQuery(createAssetTableQuery, projectName);
-            // ERROR CHECKING REQUIRED
-
-            // abort if any of the above fail
-
-            var command = DBConnection.CreateCommand();
-            command.CommandText = getTableLayoutQuery;
-            var reader = command.ExecuteReader();
-
-            // check if table layout differs for this insert. If it does, error out.
-            if (reader.HasRows) {
-                var parametersJson = reader.GetFieldValue<string>(0);
-                List<string> parameters = new List<string>();
-                // deserialize it into a list of input parameter names
-                foreach (string parameter in parameters) {
-                    if (!solution.inputs.ContainsKey(parameter)) {
-                        throw new Exception("input parameters don't match with existing records.");
-                    }
-                }
-            }
-
-            bool hasErrored = false;
-            SqliteTransaction transaction;
-
-            using (transaction = DBConnection.BeginTransaction(IsolationLevel.Serializable)) {
-                // insert solution first
-                command = DBConnection.CreateCommand();
-                command.CommandText = insertSolutionQuery;
-                command.Parameters.AddWithValue("$projectName", projectName);
-                command.Parameters.AddWithValue("$data", JsonConvert.SerializeObject(serializableSolution));
-                status = command.ExecuteNonQuery();
-                // ERROR CHECKING REQUIRED; write results to hasErrored
-
-                // get solution id
-                // for correctness' sake, get the id of the same object that was inserted
-                command = DBConnection.CreateCommand();
-                command.CommandText = getSolutionIdQuery;
-                command.Parameters.AddWithValue("$projectName", projectName);
-                command.Parameters.AddWithValue("$data", JsonConvert.SerializeObject(serializableSolution));
-                int solutionId = (int)command.ExecuteScalar();
-                // ERROR CHECKING REQUIRED; write results to hasErrored
-
-                // insert assets for the particular solution
-                foreach (KeyValuePair<string, string> asset in solution.files) {
-
-                    // TODO terminate this if solution insertion fails
-                    byte[] fileContents = File.ReadAllBytes(asset.Key);
-
-                    command = DBConnection.CreateCommand();
-                    command.CommandText = insertAssetQuery;
-                    command.Parameters.AddWithValue("$projectName", projectName);
-                    command.Parameters.AddWithValue("$data", fileContents).SqliteType = SqliteType.Blob;
-                    command.Parameters.AddWithValue("$tag", asset.Key);
-                    command.Parameters.AddWithValue("$data_id", solutionId);
-                    status = command.ExecuteNonQuery();
-                    // ERROR CHECKING REQUIRED; write results to hasErrored
-                }
-            }
-
-            if (hasErrored) {
-                transaction.Rollback();
-            } else {
-                transaction.Commit();
-            }
-
-            DBConnection.Close();
-
-            */
-            // END Writing to Local DB
 
             // TODO abort csv insertion in case SQL insertion fails
             if (!InputParameterCheck(solution, directory, projectName)) {
