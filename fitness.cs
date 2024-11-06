@@ -1,23 +1,15 @@
-using System;
-using System.Collections.Generic;
-using System.Data;
-using System.Data.Common;
-using System.Globalization;
-using System.IO;
-using System.Linq;
-using System.Net.Mime;
-using System.Runtime.CompilerServices;
-using System.Windows.Forms;
-using Eto.Forms;
 using Grasshopper.Kernel;
 using Newtonsoft.Json;
+using System;
+using System.Collections.Generic;
+using System.Data.SQLite;
 
 namespace ghplugin
 {
 
     public class Fitness : GH_Component
     {
-        // private SqliteConnection DBConnection;
+        private SQLiteConnection DBConnection;
 
         private struct SerializableSolution
         {
@@ -34,7 +26,7 @@ namespace ghplugin
         /// </summary>
         public Fitness()
           : base("Fitness", "Fitness",
-            "",
+            "Filters out solutions from the global solution set",
             "Morpho", "Genetic Search")
         {
         }
@@ -48,114 +40,14 @@ namespace ghplugin
             // You can often supply default values when creating parameters.
             // All parameters must have the correct access type. If you want 
             // to import lists or trees of values, modify the ParamAccess flag.
-            pManager.AddTextParameter("Aggregated Data", "Aggregated Data", "Aggregated data to be saved.", GH_ParamAccess.item);
             pManager.AddTextParameter("Directory", "Directory", "Directory where the data should be saved into.", GH_ParamAccess.item);
             pManager.AddTextParameter("Project Name", "Project Name", "Name of the project.", GH_ParamAccess.item);
+            pManager.AddTextParameter("Fitness Conditions", "Fitness Conditions", "Conditions imposed on the solution set", GH_ParamAccess.item);
         }
 
         protected override void RegisterOutputParams(GH_OutputParamManager pManager)
         {
-        }
-
-        /// <summary>
-        /// DBConnection must be open while using this function. Expect errors otherwise.
-        /// </summary>
-        /// <param name="query"></param>
-        // private int executeCreateQuery(string query)
-        // {
-        //     var command = DBConnection.CreateCommand();
-        //     command.CommandText = query;
-        //     return command.ExecuteNonQuery();
-        // }
-
-        // private int executeCreateQuery(string query, string projectName)
-        // {
-        //     var command = DBConnection.CreateCommand();
-        //     command.CommandText = query;
-        //     command.Parameters.AddWithValue("$projectName", projectName);
-        //     return command.ExecuteNonQuery();
-        // }
-
-        private bool InputParameterCheck(MorphoAggregatedData solution, string directory, string projectName) {
-            string path = $"{directory}/{projectName}_parameters.txt";
-            FileInfo info = new FileInfo(path);
-            if (!info.Exists) {
-                // if the input parameters aren't written to disk already, write them now
-                var inputParameters = new HashSet<string>();
-                foreach (KeyValuePair<string, double> pair in solution.inputs) {
-                    inputParameters.Add(pair.Key);
-                }
-                var writer = new StreamWriter(path);
-                writer.Write(JsonConvert.SerializeObject(inputParameters));
-                writer.Flush();
-                writer.Close();
-                return true;
-            }
-            var contents = File.ReadAllText(path);
-            HashSet<string> existingInputParameters = JsonConvert.DeserializeObject<HashSet<string>>(contents);
-            foreach (KeyValuePair<string, double> pair in solution.inputs) {
-                if (!existingInputParameters.Contains(pair.Key)) {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        private string constructCSVHeader(MorphoAggregatedData aggregatedData) {
-            List<string> header = new List<string>();
-
-            foreach (KeyValuePair<string, double> inputPair in aggregatedData.inputs) {
-                header.Add(inputPair.Key);
-            }
-            foreach (KeyValuePair<string, double> outputPair in aggregatedData.outputs) {
-                header.Add(outputPair.Key);
-            }
-            foreach (KeyValuePair<string, string> filePair in aggregatedData.files) {
-                header.Add(filePair.Key);
-            }
-            // TODO include image file headers
-
-            return string.Join(",", header);
-        }
-
-        private void writeToCSV(string directory, string projectName, MorphoAggregatedData solution)
-        {
-            FileInfo info = new FileInfo($"{directory}/{projectName}.csv");
-            var constructedHeader = constructCSVHeader(solution); // order: input parameter names, output parameter names, file tag names, image tag names
-            if (!info.Exists) {
-                StreamWriter csvHeaderWriter = new StreamWriter($"{directory}/{projectName}.csv");
-
-                csvHeaderWriter.WriteLine(constructedHeader);
-                csvHeaderWriter.Flush();
-
-                csvHeaderWriter.Close();
-            }
-
-            var existingHeader = File.ReadLines($"{directory}/{projectName}.csv").First();
-            if (!constructedHeader.Equals(existingHeader)) {
-                StreamWriter csvHeaderWriter = new StreamWriter($"{directory}/{projectName}.csv");
-                csvHeaderWriter.WriteLine(constructedHeader);
-                csvHeaderWriter.Flush();
-                csvHeaderWriter.Close();
-            }
-
-            StreamWriter csvWriter = new StreamWriter($"{directory}/{projectName}.csv", append: true);
-            List<string> csvData = new List<string>();
-
-            foreach (KeyValuePair<string, double> inputPair in solution.inputs) {
-                csvData.Add(inputPair.Value.ToString());
-            }
-            foreach (KeyValuePair<string, double> outputPair in solution.outputs) {
-                csvData.Add(outputPair.Value.ToString());
-            }
-            foreach (KeyValuePair<string, string> filePair in solution.files) {
-                csvData.Add(filePair.Value);
-            }
-            // TODO write image file names
-
-            csvWriter.WriteLine(string.Join(",", csvData));
-            csvWriter.Flush();
-            csvWriter.Close();
+            pManager.AddTextParameter("Solution Set", "Solution Set", "Solutions filtered out from the set using the provided conditions", GH_ParamAccess.item);
         }
 
         /// <summary>
@@ -165,35 +57,49 @@ namespace ghplugin
         /// to store data in output parameters.</param>
         protected override void SolveInstance(IGH_DataAccess DA)
         {
-            string aggDataJson = "";
-            DA.GetData(0, ref aggDataJson);
             string directory = "";
-            DA.GetData(1, ref directory);
+            DA.GetData(0, ref directory);
             string projectName = "";
-            DA.GetData(2, ref projectName);
+            DA.GetData(1, ref projectName);
+            string fitnessConditions = "";
+            DA.GetData(2, ref fitnessConditions); // TODO fitness condition should be its own set of component
 
-            // check if the directory is valid
-            if (!Directory.Exists(directory)) {
-                throw new Exception("Directory does not exist.");
+            List<Dictionary<string, double>> solutions = new List<Dictionary<string, double>>();
+
+            // 1. make a connection to directory/solutions.db
+            using (DBConnection = new SQLiteConnection($"Data Source={directory}/solutions.db"))
+            {
+                DBConnection.Open();
+
+                // 2. form the query
+                var query = "";
+                if (fitnessConditions.Trim().Length > 0)
+                {
+                    query = $"SELECT data FROM {projectName} WHERE {fitnessConditions};";
+                }
+                else
+                {
+                    // if the fitness function is empty, select everything
+                    query = $"SELECT data FROM {projectName};";
+                }
+
+                // 3. make the query
+                var command = DBConnection.CreateCommand();
+                command.CommandText = query;
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        // 4. deserialize and store the results in an array
+                        var json_object = reader.GetString(0);
+                        solutions.Add(JsonConvert.DeserializeObject<MorphoAggregatedData>(json_object).inputs);
+                    }
+                }
+                // 5. serialize the array to json and write it to the output parameter
+                var serialized_output = JsonConvert.SerializeObject(solutions);
+                DA.SetData(0, serialized_output);
             }
 
-            MorphoAggregatedData solution = JsonConvert.DeserializeObject<MorphoAggregatedData>(aggDataJson);
-            // SerializableSolution serializableSolution = new SerializableSolution
-            // {
-            //     inputs = solution.inputs,
-            //     outputs = solution.outputs
-            // };
-
-            if (solution.inputs == null || solution.outputs == null) {
-                // if anything turns null, return without failing
-                return;
-            }
-
-            // TODO abort csv insertion in case SQL insertion fails
-            if (!InputParameterCheck(solution, directory, projectName)) {
-                throw new Exception("Input Parameters differ.");
-            }
-            writeToCSV(directory, projectName, solution);
         }
 
         /// <summary>
@@ -217,6 +123,6 @@ namespace ghplugin
         /// It is vital this Guid doesn't change otherwise old ghx files 
         /// that use the old ID will partially fail during loading.
         /// </summary>
-        public override Guid ComponentGuid => new Guid("3c6102ac-8a0e-49fe-b82a-2b09f0b2acf6");
+        public override Guid ComponentGuid => new Guid("296b073b-0e8c-47a0-970a-04f447df42ce");
     }
 }

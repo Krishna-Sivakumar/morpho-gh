@@ -23,12 +23,9 @@
   </PropertyGroup>
   
   <ItemGroup>
-    <PackageReference Include="Grasshopper" Version="8.0.23304.9001" ExcludeAssets="runtime" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.10" />
+
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
-    <PackageReference Include="SQLitePCLRaw.bundle_green" Version="2.1.10" />
-    <PackageReference Include="SQLitePCLRaw.core" Version="2.1.10" />
-    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.10" />
+    <PackageReference Include="System.Data.SQLite.Core" Version="1.0.119" />
   </ItemGroup>
   
   <!-- For Windows only builds -->
@@ -44,7 +41,7 @@
     <!-- Rhino 8.10 and earlier -->
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net48" Version="1.0.3" ExcludeAssets="all" GeneratePathProperty="true" />
     <Reference Include="$(PkgMicrosoft_NETFramework_ReferenceAssemblies_net48)\build\.NETFramework\v4.8\System.Windows.Forms.dll" Private="False" />
-    <PackageReference Include="System.Drawing.Common" Version="7.0.0" ExcludeAssets="runtime" />
+    <PackageReference Include="System.Drawing.Common" Version="8.0.10" ExcludeAssets="runtime" />
   </ItemGroup>
 
 </Project>
