@@ -2,22 +2,12 @@ using System;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 
-using Grasshopper;
 using Grasshopper.Kernel;
-using Rhino.ApplicationSettings;
-using Rhino.Geometry;
-using Rhino.Commands;
-using Rhino.Runtime.RhinoAccounts;
-using System.Windows.Forms;
-using Grasshopper.Kernel.Parameters;
-using System.Windows.Markup;
-using System.Security.Cryptography;
-using System.Xml.Serialization;
-using System.Diagnostics;
-using System.Linq;
 
 namespace ghplugin
 {
+    using NumberSlider = Grasshopper.Kernel.Special.GH_NumberSlider;
+
     public struct MorphoSolution
     {
         public Dictionary<string, double> values;
@@ -25,6 +15,12 @@ namespace ghplugin
 
     public class GeneGenerator : GH_Component
     {
+        private struct ParameterDefinition {
+            public double max, min;
+            public string name;
+        }
+        private ParameterDefinition[] parameterDefinitions;
+
         private struct NamedMorphoInterval
         {
             public double start;
@@ -40,14 +36,20 @@ namespace ghplugin
         private MorphoSolution[] solutionSet;
         private Dictionary<string, NamedMorphoInterval> intervals;
 
-        /// <summary>
-        /// If previousParameters and parameters are different, return true.
-        /// </summary>
-        /// <returns>true if the previous parameters and current parameters are different.</returns>
-        bool DiffParameters()
-        {
-            return true;
+        private void collectInputSchema() {
+            // Grasshopper.Kernel.Special.GH_NumberSlider component = (Grasshopper.Kernel.Special.GH_NumberSlider) this.Component.Params.Input[0].Sources[0];
+            this.parameterDefinitions = new ParameterDefinition[this.Params.Input[0].Sources.Count];
+            var index = 0;
+            foreach (NumberSlider slider in this.Params.Input[0].Sources) {
+                this.parameterDefinitions[index] = new ParameterDefinition();
+                this.parameterDefinitions[index].max = (double) slider.Slider.Maximum;
+                this.parameterDefinitions[index].min = (double) slider.Slider.Minimum;
+                this.parameterDefinitions[index].name = slider.NickName;
+                index ++;
+            }
         }
+
+
 
         public Dictionary<string, string> ParseSchema(string rawText)
         {
@@ -89,7 +91,7 @@ namespace ghplugin
         {
             schema = new Dictionary<string, string> { };
             intervals = new Dictionary<string, NamedMorphoInterval>();
-            seed = (int)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            seed = (int)DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1)).TotalSeconds;
             randomGenerators = new Dictionary<int, Random>();
         }
 
@@ -122,7 +124,8 @@ namespace ghplugin
 
         protected override void RegisterOutputParams(GH_OutputParamManager pManager)
         {
-            pManager.AddTextParameter("Outputs", "outputs", "Outputs of the gene generator", GH_ParamAccess.item);
+            pManager.AddNumberParameter("Genes", "genes", "List of Genes", GH_ParamAccess.list);
+            pManager.AddTextParameter("Genes with Names", "genes_with_names", "List of Genes with associated names", GH_ParamAccess.list);
         }
 
         double generateRandomDouble(double start, double end)
@@ -209,9 +212,13 @@ namespace ghplugin
             Dictionary<string, double> outputs = new Dictionary<string, double>();
             if (initiateComputation)
             {
-                Random generator = new Random((int)(DateTimeOffset.UtcNow.ToUnixTimeSeconds() % int.MaxValue));
-                int parent1 = generator.Next() % solutionSet.Length;
-                int parent2 = generator.Next() % solutionSet.Length;
+                int seed = (int)DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1)).TotalSeconds % int.MaxValue;
+                Random generator = new Random(seed);
+                int parent1 = -1, parent2 = -1;
+                if (solutionSet.Length > 0) {
+                    parent1 = generator.Next() % solutionSet.Length;
+                    parent2 = generator.Next() % solutionSet.Length;
+                }
 
                 foreach (KeyValuePair<string, string> kv in schema)
                 {
@@ -219,11 +226,14 @@ namespace ghplugin
                     // HUX
                     var variant = generateRandomInt(0, 3);
                     var random_treshold = generateRandomDouble(0, 1);
-                    if (!is_systematic || random_treshold < parameters.probability_mutation)
+
+                    if (!is_systematic || random_treshold < parameters.probability_mutation || parent1 == -1 || parent2 == -1)
                     {
+                        // generate if system is not systematic, if it mutates by chance or if there are not parents
                         double point_on_scale;
                         if (is_systematic)
                         {
+                            // TODO fix nonsencical generation code
                             point_on_scale = generateRandomDouble(intervals[param_name].start, intervals[param_name].end);
                         }
                         else
@@ -255,7 +265,16 @@ namespace ghplugin
                     }
                 }
 
-                DA.SetData(0, JsonConvert.SerializeObject(outputs));
+                double[] output_doubles = new double[outputs.Count];
+                string[] output_human = new string[outputs.Count];
+                var index = 0;
+                foreach (var outputPair in outputs) {
+                    output_doubles[index] = outputPair.Value;
+                    output_human[index] = $"{outputPair.Key}, {outputPair.Value}";
+                    index ++;
+                }
+                DA.SetDataList(0, output_doubles);
+                DA.SetDataList(1, output_human);
             }
         }
 

@@ -1,13 +1,7 @@
 using System;
-using System.Collections.Generic;
 using Newtonsoft.Json;
 
-using Grasshopper;
 using Grasshopper.Kernel;
-using Rhino.ApplicationSettings;
-using Rhino.Geometry;
-using Rhino.Commands;
-using Rhino.Runtime.RhinoAccounts;
 
 struct ParameterSet
 {

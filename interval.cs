@@ -1,20 +1,7 @@
 using System;
-using System.Collections.Generic;
 using Newtonsoft.Json;
 
-using Grasshopper;
 using Grasshopper.Kernel;
-using Rhino.ApplicationSettings;
-using Rhino.Geometry;
-using Rhino.Commands;
-using Rhino.Runtime.RhinoAccounts;
-using System.Windows.Forms;
-using Grasshopper.Kernel.Parameters;
-using System.Windows.Markup;
-using System.Security.Cryptography;
-using System.Xml.Serialization;
-using System.Diagnostics;
-using System.IO;
 
 namespace ghplugin
 {

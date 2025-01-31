@@ -1,30 +1,20 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
-using System.Data.Common;
-using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Net.Mime;
-using System.Runtime.CompilerServices;
-using System.Windows.Forms;
-using Eto.Forms;
 using System.Data.SQLite;
 using Grasshopper.Kernel;
 using Newtonsoft.Json;
-using System.Web;
 
 namespace ghplugin
 {
 
     public class SaveToDisk : GH_Component
     {
-        private SQLiteConnection DBConnection;
 
-        private struct SerializableSolution
-        {
-            public Dictionary<string, double> inputs;
-            public Dictionary<string, double> outputs;
+        public struct SerializableSolution {
+            public Dictionary<string, double> parameters;
         }
 
         /// <summary>
@@ -57,49 +47,52 @@ namespace ghplugin
 
         protected override void RegisterOutputParams(GH_OutputParamManager pManager)
         {
+            pManager.AddBooleanParameter("Looper", "Looper", "Connects to Looper to start the next iteration", GH_ParamAccess.item);
         }
 
         /// <summary>
         /// DBConnection must be open while using this function. Expect errors otherwise.
         /// </summary>
         /// <param name="query"></param>
-        private int executeCreateQuery(string query)
+        private int executeCreateQuery(string query, SQLiteConnection DBConnection)
         {
             var command = DBConnection.CreateCommand();
             command.CommandText = query;
             return command.ExecuteNonQuery();
         }
 
-        private int executeCreateQuery(string query, string projectName)
-        {
-            var command = DBConnection.CreateCommand();
-            command.CommandText = query;
-            command.Parameters.AddWithValue("$projectName", projectName);
-            return command.ExecuteNonQuery();
-        }
+        private bool InputParameterCheck(MorphoAggregatedData solution, string projectName, SQLiteConnection DBConnection) {
+            string getTableLayoutQuery      = "SELECT parameters FROM project_layout WHERE project_name=$projectName";
+            string insertTableLayoutQuery   = "INSERT INTO project_layout VALUES ($projectName, $layout)";
+            var inputParameters = new HashSet<string>();
 
-        static private bool InputParameterCheck(MorphoAggregatedData solution, string directory, string projectName) {
-            string path = $"{directory}/{projectName}_parameters.txt";
-            FileInfo info = new FileInfo(path);
-            if (!info.Exists) {
-                // if the input parameters aren't written to disk already, write them now
-                var inputParameters = new HashSet<string>();
-                foreach (KeyValuePair<string, double> pair in solution.inputs) {
-                    inputParameters.Add(pair.Key);
+            var getCommand = DBConnection.CreateCommand();
+            getCommand.CommandText = getTableLayoutQuery;
+            getCommand.Parameters.AddWithValue("$projectName", projectName);
+            using (var layoutReader = getCommand.ExecuteReader()) {
+                inputParameters = new HashSet<string>();
+                if (layoutReader.Read()) {
+                    var serializedInputParameters = layoutReader.GetString(0);
+                    inputParameters = JsonConvert.DeserializeObject<HashSet<string>>(serializedInputParameters);
+                    foreach (KeyValuePair<string, double> pair in solution.inputs) {
+                        if (!inputParameters.Contains(pair.Key)) {
+                            return false;
+                        }
+                    }
+                    return true;
                 }
-                var writer = new StreamWriter(path);
-                writer.Write(JsonConvert.SerializeObject(inputParameters));
-                writer.Flush();
-                writer.Close();
-                return true;
             }
-            var contents = File.ReadAllText(path);
-            HashSet<string> existingInputParameters = JsonConvert.DeserializeObject<HashSet<string>>(contents);
+
+            // if the input parameters aren't written to disk already, write them now
             foreach (KeyValuePair<string, double> pair in solution.inputs) {
-                if (!existingInputParameters.Contains(pair.Key)) {
-                    return false;
-                }
+                inputParameters.Add(pair.Key);
             }
+            var insertCommand = DBConnection.CreateCommand();
+            insertCommand.CommandText = insertTableLayoutQuery;
+            insertCommand.Parameters.AddWithValue("$projectName", projectName);
+            insertCommand.Parameters.AddWithValue("$layout", JsonConvert.SerializeObject(inputParameters));
+            insertCommand.ExecuteNonQuery();
+            // TODO error handling
             return true;
         }
 
@@ -182,10 +175,22 @@ namespace ghplugin
             }
 
             MorphoAggregatedData solution = JsonConvert.DeserializeObject<MorphoAggregatedData>(aggDataJson);
+            if (solution.inputs == null || solution.outputs == null) {
+                // if aggregated data is null, stop executing the component
+                return;
+            }
+
+            Dictionary<string, double> parameters = new Dictionary<string, double>();
+            foreach (KeyValuePair<string, double> pair in solution.inputs) {
+                parameters.Add(pair.Key, pair.Value);
+            }
+            foreach (KeyValuePair<string, double> pair in solution.outputs) {
+                parameters.Add(pair.Key, pair.Value);
+            }
             SerializableSolution serializableSolution = new SerializableSolution
             {
-                inputs = solution.inputs,
-                outputs = solution.outputs
+                parameters = parameters
+
             };
 
             if (solution.inputs == null || solution.outputs == null) {
@@ -195,25 +200,37 @@ namespace ghplugin
 
             // BEGIN Writing to Local DB
 
-            using (DBConnection = new SQLiteConnection($"Data Source={directory}/solutions.db"))
+            var connBuilder = new SQLiteConnectionStringBuilder();
+            connBuilder.DataSource = $"{directory}/solutions.db";
+            connBuilder.Version = 3;
+            connBuilder.JournalMode = SQLiteJournalModeEnum.Wal;
+            connBuilder.LegacyFormat = false;
+            connBuilder.Pooling = true;
+
+            using (var DBConnection = new SQLiteConnection(connBuilder.ToString()))
             {
+                Console.WriteLine("database was opened by SaveToDisk in WAL mode.");
+                Console.WriteLine("starting save");
                 DBConnection.Open();
 
-                string createTableLayoutQuery = "CREATE TABLE IF NOT EXISTS project_layout (project_name text primary key, parameters jsonb)";
-                string createProjectTableQuery = $"CREATE TABLE IF NOT EXISTS {projectName} (data_id integer primary key autoincrement, data jsonb not null)";
-                string createAssetTableQuery = $"CREATE TABLE IF NOT EXISTS {projectName}_assets (asset_id integer primary key autoincrement, data blob not null, tag text not null, data_id integer, foreign key(data_id) references {projectName}(data_id))";
-                string getTableLayoutQuery = "SELECT parameters FROM project_layout WHERE project_name=$projectName";
-                string insertSolutionQuery = $"INSERT INTO {projectName} (data) VALUES ($data)";
-                string getSolutionIdQuery = $"SELECT data_id FROM {projectName} WHERE data = $data";
-                string insertAssetQuery = $"INSERT INTO {projectName}_assets(data, tag, data_id) values ($data, $tag, $data_id)";
+                string createTableLayoutQuery   = "CREATE TABLE IF NOT EXISTS project_layout (project_name text primary key, parameters jsonb)";
+                string insertTableLayoutQuery   = $"INSERT INTO project_layout VALUES ({projectName}, $layout)";
+                string getTableLayoutQuery      = "SELECT parameters FROM project_layout WHERE project_name=$projectName";
 
-                var status = executeCreateQuery(createTableLayoutQuery);
+                string createProjectTableQuery  = $"CREATE TABLE IF NOT EXISTS {projectName} (data_id integer primary key autoincrement, data jsonb not null)";
+                string insertSolutionQuery      = $"INSERT INTO {projectName} (data) VALUES ($data)";
+                string getSolutionIdQuery       = $"SELECT data_id FROM {projectName} WHERE data = $data";
+
+                string createAssetTableQuery    = $"CREATE TABLE IF NOT EXISTS {projectName}_assets (asset_id integer primary key autoincrement, data blob not null, tag text not null, data_id integer, foreign key(data_id) references {projectName}(data_id))";
+                string insertAssetQuery         = $"INSERT INTO {projectName}_assets(data, tag, data_id) values ($data, $tag, $data_id)";
+
+                var status = executeCreateQuery(createTableLayoutQuery, DBConnection);
                 // ERROR CHECKING REQUIRED
 
-                status = executeCreateQuery(createProjectTableQuery);
+                status = executeCreateQuery(createProjectTableQuery, DBConnection);
                 // ERROR CHECKING REQUIRED
 
-                status = executeCreateQuery(createAssetTableQuery);
+                status = executeCreateQuery(createAssetTableQuery, DBConnection);
                 // ERROR CHECKING REQUIRED
 
                 // abort if any of the above fail
@@ -224,19 +241,16 @@ namespace ghplugin
                 var reader = command.ExecuteReader();
 
                 // check if table layout differs for this insert. If it does, error out.
-                if (!InputParameterCheck(solution, directory, projectName))
+                if (!InputParameterCheck(solution, projectName, DBConnection))
                 {
                     throw new Exception("Input Parameters differ.");
                 }
 
                 bool hasErrored = false;
-                SQLiteTransaction transaction;
-
-                using (transaction = DBConnection.BeginTransaction(IsolationLevel.Serializable))
+                using (var transaction = DBConnection.BeginTransaction(IsolationLevel.Serializable))
                 {
                     // insert solution first
-                    command = DBConnection.CreateCommand();
-                    command.CommandText = insertSolutionQuery;
+                    command = new SQLiteCommand(insertSolutionQuery, DBConnection, transaction);
                     command.Parameters.AddWithValue("$projectName", projectName);
                     command.Parameters.AddWithValue("$data", JsonConvert.SerializeObject(serializableSolution));
                     status = command.ExecuteNonQuery();
@@ -244,8 +258,7 @@ namespace ghplugin
 
                     // get solution id
                     // for correctness' sake, get the id of the same object that was inserted
-                    command = DBConnection.CreateCommand();
-                    command.CommandText = getSolutionIdQuery;
+                    command = new SQLiteCommand(getSolutionIdQuery, DBConnection, transaction);
                     command.Parameters.AddWithValue("$projectName", projectName);
                     command.Parameters.AddWithValue("$data", JsonConvert.SerializeObject(serializableSolution));
                     Int64 solutionId = (Int64)command.ExecuteScalar();
@@ -258,8 +271,7 @@ namespace ghplugin
                         // TODO terminate this if solution insertion fails
                         byte[] fileContents = File.ReadAllBytes(asset.Key);
 
-                        command = DBConnection.CreateCommand();
-                        command.CommandText = insertAssetQuery;
+                        command = new SQLiteCommand(insertAssetQuery, DBConnection, transaction);
                         command.Parameters.AddWithValue("$projectName", projectName);
                         command.Parameters.AddWithValue("$data", fileContents);
                         command.Parameters.AddWithValue("$tag", asset.Key);
@@ -283,6 +295,10 @@ namespace ghplugin
                 // TODO abort csv insertion in case SQL insertion fails
                 writeToCSV(directory, projectName, solution);
             }
+            Console.WriteLine("database was closed by SaveToDisk.");
+
+            DA.SetData(0, false);
+            DA.SetData(0, true);
         }
 
         /// <summary>

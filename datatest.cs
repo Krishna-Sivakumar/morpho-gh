@@ -1,28 +1,45 @@
 using System;
-using System.Collections.Generic;
-using Newtonsoft.Json;
-
-using Grasshopper;
 using Grasshopper.Kernel;
-using Rhino.ApplicationSettings;
-using Rhino.Geometry;
-using Rhino.Commands;
-using Rhino.Runtime.RhinoAccounts;
-using System.Windows.Forms;
-using Grasshopper.Kernel.Parameters;
-using System.Windows.Markup;
-using System.Security.Cryptography;
-using System.Xml.Serialization;
-using System.Diagnostics;
-using System.IO;
 
 namespace ghplugin
 {
-
+    using NumberSlider = Grasshopper.Kernel.Special.GH_NumberSlider;
 
     public class DataTest : GH_Component
     {
-        private int counter;
+        private struct ParameterDefinition {
+            public double max, min;
+            public string name;
+        }
+
+        private ParameterDefinition[] parameterDefinitions;
+
+        private void collectInputSchema() {
+            // Grasshopper.Kernel.Special.GH_NumberSlider component = (Grasshopper.Kernel.Special.GH_NumberSlider) this.Component.Params.Input[0].Sources[0];
+            this.parameterDefinitions = new ParameterDefinition[this.Params.Input[0].Sources.Count];
+            var index = 0;
+            foreach (object slider in this.Params.Input[0].Sources) {
+                if (slider.GetType() != typeof(Grasshopper.Kernel.Special.GH_NumberSlider) || slider.GetType().ToString() == "GalapagosComponents.GalapagosGeneListObject") {
+                    throw new Exception($"Only Number Sliders and Gene Pools are accepted.");
+                }
+
+                if (slider.GetType() == typeof(NumberSlider)) {
+                    var tempSlider = (NumberSlider ) slider;
+                    this.parameterDefinitions[index] = new ParameterDefinition();
+                    this.parameterDefinitions[index].max = (double) tempSlider.Slider.Maximum;
+                    this.parameterDefinitions[index].min = (double) tempSlider.Slider.Minimum;
+                    this.parameterDefinitions[index].name = tempSlider.NickName;
+                    index ++;
+                } else {
+                    dynamic tempSlider = slider;
+                    this.parameterDefinitions[index] = new ParameterDefinition();
+                    this.parameterDefinitions[index].max = (double) tempSlider.Maximum;
+                    this.parameterDefinitions[index].min = (double) tempSlider.Minimum;
+                    this.parameterDefinitions[index].name = tempSlider.NickName;
+                    index ++;
+                }
+            }
+        }
 
         /// <summary>
         /// Each implementation of GH_Component must provide a public 
@@ -34,7 +51,6 @@ namespace ghplugin
         public DataTest()
           : base("DataTest", "Data Test", "", "Morpho", "")
         {
-            counter = 0;
         }
 
         private void checkError(bool success)
@@ -52,12 +68,12 @@ namespace ghplugin
             // You can often supply default values when creating parameters.
             // All parameters must have the correct access type. If you want 
             // to import lists or trees of values, modify the ParamAccess flag.
-            pManager.AddBooleanParameter("Start", "start", "Start of Interval", GH_ParamAccess.item);
+            pManager.AddNumberParameter("Intervals", "Intervals", "Set of Intervals", GH_ParamAccess.list);
         }
 
         protected override void RegisterOutputParams(GH_OutputParamManager pManager)
         {
-            pManager.AddNumberParameter("Output", "output", "Output of the component", GH_ParamAccess.item);
+            pManager.AddTextParameter("Output", "output", "Output of the component", GH_ParamAccess.list);
         }
 
         /// <summary>
@@ -67,16 +83,12 @@ namespace ghplugin
         /// to store data in output parameters.</param>
         protected override void SolveInstance(IGH_DataAccess DA)
         {
-            bool is_active = false;
-            if (!DA.GetData(0, ref is_active))
-            {
-                return;
+            this.collectInputSchema();
+            string[] output = new string[this.parameterDefinitions.Length];
+            for (int i = 0; i < this.parameterDefinitions.Length; i ++) {
+                output[i] = $"{this.parameterDefinitions[i].name},{this.parameterDefinitions[i].min},{this.parameterDefinitions[i].max}";
             }
-            if (is_active)
-            {
-                counter++;
-                DA.SetData(0, counter);
-            }
+            DA.SetDataList(0,  output);
         }
 
         /// <summary>
