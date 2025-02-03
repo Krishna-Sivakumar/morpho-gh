@@ -13,7 +13,8 @@ namespace ghplugin
     public class SaveToDisk : GH_Component
     {
 
-        public struct SerializableSolution {
+        public struct SerializableSolution
+        {
             public Dictionary<string, double> parameters;
         }
 
@@ -43,11 +44,11 @@ namespace ghplugin
             pManager.AddTextParameter("Aggregated Data", "Aggregated Data", "Aggregated data to be saved.", GH_ParamAccess.item);
             pManager.AddTextParameter("Directory", "Directory", "Directory where the data should be saved into.", GH_ParamAccess.item);
             pManager.AddTextParameter("Project Name", "Project Name", "Name of the project.", GH_ParamAccess.item);
+            pManager.AddBooleanParameter("Enabled", "Enabled", "Enables the Component", GH_ParamAccess.item);
         }
 
         protected override void RegisterOutputParams(GH_OutputParamManager pManager)
         {
-            pManager.AddBooleanParameter("Looper", "Looper", "Connects to Looper to start the next iteration", GH_ParamAccess.item);
         }
 
         /// <summary>
@@ -61,21 +62,26 @@ namespace ghplugin
             return command.ExecuteNonQuery();
         }
 
-        private bool InputParameterCheck(MorphoAggregatedData solution, string projectName, SQLiteConnection DBConnection) {
-            string getTableLayoutQuery      = "SELECT parameters FROM project_layout WHERE project_name=$projectName";
-            string insertTableLayoutQuery   = "INSERT INTO project_layout VALUES ($projectName, $layout)";
+        private bool InputParameterCheck(MorphoAggregatedData solution, string projectName, SQLiteConnection DBConnection)
+        {
+            string getTableLayoutQuery = "SELECT parameters FROM project_layout WHERE project_name=$projectName";
+            string insertTableLayoutQuery = "INSERT INTO project_layout VALUES ($projectName, $layout)";
             var inputParameters = new HashSet<string>();
 
             var getCommand = DBConnection.CreateCommand();
             getCommand.CommandText = getTableLayoutQuery;
             getCommand.Parameters.AddWithValue("$projectName", projectName);
-            using (var layoutReader = getCommand.ExecuteReader()) {
+            using (var layoutReader = getCommand.ExecuteReader())
+            {
                 inputParameters = new HashSet<string>();
-                if (layoutReader.Read()) {
+                if (layoutReader.Read())
+                {
                     var serializedInputParameters = layoutReader.GetString(0);
                     inputParameters = JsonConvert.DeserializeObject<HashSet<string>>(serializedInputParameters);
-                    foreach (KeyValuePair<string, double> pair in solution.inputs) {
-                        if (!inputParameters.Contains(pair.Key)) {
+                    foreach (KeyValuePair<string, double> pair in solution.inputs)
+                    {
+                        if (!inputParameters.Contains(pair.Key))
+                        {
                             return false;
                         }
                     }
@@ -84,7 +90,8 @@ namespace ghplugin
             }
 
             // if the input parameters aren't written to disk already, write them now
-            foreach (KeyValuePair<string, double> pair in solution.inputs) {
+            foreach (KeyValuePair<string, double> pair in solution.inputs)
+            {
                 inputParameters.Add(pair.Key);
             }
             var insertCommand = DBConnection.CreateCommand();
@@ -96,16 +103,20 @@ namespace ghplugin
             return true;
         }
 
-        private string constructCSVHeader(MorphoAggregatedData aggregatedData) {
+        private string constructCSVHeader(MorphoAggregatedData aggregatedData)
+        {
             List<string> header = new List<string>();
 
-            foreach (KeyValuePair<string, double> inputPair in aggregatedData.inputs) {
+            foreach (KeyValuePair<string, double> inputPair in aggregatedData.inputs)
+            {
                 header.Add(inputPair.Key);
             }
-            foreach (KeyValuePair<string, double> outputPair in aggregatedData.outputs) {
+            foreach (KeyValuePair<string, double> outputPair in aggregatedData.outputs)
+            {
                 header.Add(outputPair.Key);
             }
-            foreach (KeyValuePair<string, string> filePair in aggregatedData.files) {
+            foreach (KeyValuePair<string, string> filePair in aggregatedData.files)
+            {
                 header.Add(filePair.Key);
             }
             // TODO include image file headers
@@ -117,7 +128,8 @@ namespace ghplugin
         {
             FileInfo info = new FileInfo($"{directory}/{projectName}.csv");
             var constructedHeader = constructCSVHeader(solution); // order: input parameter names, output parameter names, file tag names, image tag names
-            if (!info.Exists) {
+            if (!info.Exists)
+            {
                 StreamWriter csvHeaderWriter = new StreamWriter($"{directory}/{projectName}.csv");
 
                 csvHeaderWriter.WriteLine(constructedHeader);
@@ -127,7 +139,8 @@ namespace ghplugin
             }
 
             var existingHeader = File.ReadLines($"{directory}/{projectName}.csv").First();
-            if (!constructedHeader.Equals(existingHeader)) {
+            if (!constructedHeader.Equals(existingHeader))
+            {
                 StreamWriter csvHeaderWriter = new StreamWriter($"{directory}/{projectName}.csv");
                 csvHeaderWriter.WriteLine(constructedHeader);
                 csvHeaderWriter.Flush();
@@ -137,13 +150,16 @@ namespace ghplugin
             StreamWriter csvWriter = new StreamWriter($"{directory}/{projectName}.csv", append: true);
             List<string> csvData = new List<string>();
 
-            foreach (KeyValuePair<string, double> inputPair in solution.inputs) {
+            foreach (KeyValuePair<string, double> inputPair in solution.inputs)
+            {
                 csvData.Add(inputPair.Value.ToString());
             }
-            foreach (KeyValuePair<string, double> outputPair in solution.outputs) {
+            foreach (KeyValuePair<string, double> outputPair in solution.outputs)
+            {
                 csvData.Add(outputPair.Value.ToString());
             }
-            foreach (KeyValuePair<string, string> filePair in solution.files) {
+            foreach (KeyValuePair<string, string> filePair in solution.files)
+            {
                 csvData.Add(filePair.Value);
             }
             // TODO write image file names
@@ -153,6 +169,24 @@ namespace ghplugin
             csvWriter.Close();
         }
 
+        protected static void checkError(bool success, string errorMessage)
+        {
+            if (!success)
+                throw new Exception(errorMessage);
+        }
+
+        protected static void checkError(bool success)
+        {
+            checkError(success, "parameters missing.");
+        }
+
+        protected static T GetParameter<T>(IGH_DataAccess DA, int position)
+        {
+            T data_item = default;
+            checkError(DA.GetData(position, ref data_item));
+            return data_item;
+        }
+
         /// <summary>
         /// This is the method that actually does the work.
         /// </summary>
@@ -160,31 +194,37 @@ namespace ghplugin
         /// to store data in output parameters.</param>
         protected override void SolveInstance(IGH_DataAccess DA)
         {
-            string aggDataJson = "";
-            DA.GetData(0, ref aggDataJson);
-            string directory = "";
-            DA.GetData(1, ref directory);
-            string projectName = "";
-            DA.GetData(2, ref projectName);
+            string aggDataJson = GetParameter<string>(DA, 0);
+            string directory = GetParameter<string>(DA, 1);
+            string projectName = GetParameter<string>(DA, 2);
+            bool enabled = GetParameter<bool>(DA, 3);
 
             projectName = System.Security.SecurityElement.Escape(projectName);
 
+            if (!enabled) {
+                return;
+            }
+
             // check if the directory is valid
-            if (!Directory.Exists(directory)) {
+            if (!Directory.Exists(directory))
+            {
                 throw new Exception("Directory does not exist.");
             }
 
             MorphoAggregatedData solution = JsonConvert.DeserializeObject<MorphoAggregatedData>(aggDataJson);
-            if (solution.inputs == null || solution.outputs == null) {
+            if (solution.inputs == null || solution.outputs == null)
+            {
                 // if aggregated data is null, stop executing the component
                 return;
             }
 
             Dictionary<string, double> parameters = new Dictionary<string, double>();
-            foreach (KeyValuePair<string, double> pair in solution.inputs) {
+            foreach (KeyValuePair<string, double> pair in solution.inputs)
+            {
                 parameters.Add(pair.Key, pair.Value);
             }
-            foreach (KeyValuePair<string, double> pair in solution.outputs) {
+            foreach (KeyValuePair<string, double> pair in solution.outputs)
+            {
                 parameters.Add(pair.Key, pair.Value);
             }
             SerializableSolution serializableSolution = new SerializableSolution
@@ -193,7 +233,8 @@ namespace ghplugin
 
             };
 
-            if (solution.inputs == null || solution.outputs == null) {
+            if (solution.inputs == null || solution.outputs == null)
+            {
                 // if anything turns null, return without failing
                 return;
             }
@@ -213,16 +254,16 @@ namespace ghplugin
                 Console.WriteLine("starting save");
                 DBConnection.Open();
 
-                string createTableLayoutQuery   = "CREATE TABLE IF NOT EXISTS project_layout (project_name text primary key, parameters jsonb)";
-                string insertTableLayoutQuery   = $"INSERT INTO project_layout VALUES ({projectName}, $layout)";
-                string getTableLayoutQuery      = "SELECT parameters FROM project_layout WHERE project_name=$projectName";
+                string createTableLayoutQuery = "CREATE TABLE IF NOT EXISTS project_layout (project_name text primary key, parameters jsonb)";
+                string insertTableLayoutQuery = $"INSERT INTO project_layout VALUES ({projectName}, $layout)";
+                string getTableLayoutQuery = "SELECT parameters FROM project_layout WHERE project_name=$projectName";
 
-                string createProjectTableQuery  = $"CREATE TABLE IF NOT EXISTS {projectName} (data_id integer primary key autoincrement, data jsonb not null)";
-                string insertSolutionQuery      = $"INSERT INTO {projectName} (data) VALUES ($data)";
-                string getSolutionIdQuery       = $"SELECT data_id FROM {projectName} WHERE data = $data";
+                string createProjectTableQuery = $"CREATE TABLE IF NOT EXISTS {projectName} (data_id integer primary key autoincrement, data jsonb not null)";
+                string insertSolutionQuery = $"INSERT INTO {projectName} (data) VALUES ($data)";
+                string getSolutionIdQuery = $"SELECT data_id FROM {projectName} WHERE data = $data";
 
-                string createAssetTableQuery    = $"CREATE TABLE IF NOT EXISTS {projectName}_assets (asset_id integer primary key autoincrement, data blob not null, tag text not null, data_id integer, foreign key(data_id) references {projectName}(data_id))";
-                string insertAssetQuery         = $"INSERT INTO {projectName}_assets(data, tag, data_id) values ($data, $tag, $data_id)";
+                string createAssetTableQuery = $"CREATE TABLE IF NOT EXISTS {projectName}_assets (asset_id integer primary key autoincrement, data blob not null, tag text not null, data_id integer, foreign key(data_id) references {projectName}(data_id))";
+                string insertAssetQuery = $"INSERT INTO {projectName}_assets(data, tag, data_id) values ($data, $tag, $data_id)";
 
                 var status = executeCreateQuery(createTableLayoutQuery, DBConnection);
                 // ERROR CHECKING REQUIRED
@@ -296,9 +337,6 @@ namespace ghplugin
                 writeToCSV(directory, projectName, solution);
             }
             Console.WriteLine("database was closed by SaveToDisk.");
-
-            DA.SetData(0, false);
-            DA.SetData(0, true);
         }
 
         /// <summary>

@@ -7,6 +7,7 @@ using Grasshopper.Kernel;
 using System.Data.SQLite;
 using System.Timers;
 using System.Diagnostics;
+using Eto.Forms;
 
 namespace ghplugin
 {
@@ -27,7 +28,6 @@ namespace ghplugin
             public string nickname;
         }
         private ParameterSet parameters;
-        // private Dictionary<string, string> schema;
         private bool is_systematic = false;
         private int seed;
         private Dictionary<int, Random> randomGenerators;
@@ -37,7 +37,8 @@ namespace ghplugin
         // Timer Section
 
         /// <summary>Tracks all the details needed to iterate the component.</summary>
-        private struct IterationStats {
+        private struct IterationStats
+        {
             public long iterationLimit;
             public long iterationCount;
             public string directory;    // directory of the sqlite DB
@@ -47,8 +48,10 @@ namespace ghplugin
         };
         private IterationStats iterationStats;
 
-        private long getCurrentDBIteration(string directory, string projectName) {
-            try {
+        private long getCurrentDBIteration(string directory, string projectName)
+        {
+            try
+            {
                 var connBuilder = new SQLiteConnectionStringBuilder();
                 connBuilder.DataSource = $"{directory}/solutions.db";
                 connBuilder.Version = 3;
@@ -56,7 +59,8 @@ namespace ghplugin
                 connBuilder.LegacyFormat = false;
                 connBuilder.Pooling = true;
 
-                using (SQLiteConnection conn = new SQLiteConnection(connBuilder.ToString())) {
+                using (SQLiteConnection conn = new SQLiteConnection(connBuilder.ToString()))
+                {
                     Console.WriteLine("database was opened by GeneGenerator.");
                     conn.Open();
                     string query = $"select COUNT(*) from {projectName}";
@@ -65,31 +69,41 @@ namespace ghplugin
                     Console.WriteLine("database was closed by GeneGenerator.");
                     return (long)command.ExecuteScalar();
                 }
-            } catch(SQLiteException e) {
+            }
+            catch (SQLiteException e)
+            {
                 // database is locked, return the current iteration.
-                if (e.ErrorCode == (int)SQLiteErrorCode.Busy) {
+                if (e.ErrorCode == (int)SQLiteErrorCode.Busy)
+                {
                     return iterationStats.iterationCount;
-                } else {
+                }
+                else
+                {
                     throw e;
                 }
             }
         }
 
-        private void setTimerExpired(Object src, ElapsedEventArgs e) {
+        private void setTimerExpired(Object src, ElapsedEventArgs e)
+        {
             // callback for the inprocess timer to check if the db has been updated
 
             // check if the count of elements were advanced and then restart this component if they have.
             var currentIterationCount = getCurrentDBIteration(iterationStats.directory, iterationStats.projectName);
-            if (currentIterationCount > this.iterationStats.iterationCount) {
+            if (currentIterationCount > this.iterationStats.iterationCount)
+            {
                 Console.Write("current iteration:");
                 Console.WriteLine(currentIterationCount);
                 // TODO something is screwed up here, check it
                 iterationStats.iterationCount = currentIterationCount;
-                if (iterationStats.iterationCount < iterationStats.iterationLimit) {
+                if (iterationStats.iterationCount < iterationStats.iterationLimit)
+                {
                     iterationStats.timer.Interval = 1000; //ms
                     iterationStats.timer.Start();
                     Console.WriteLine("Timer expired.");
-                } else {
+                }
+                else
+                {
                     // we nullify the timer, so that re-enabling the generator restarts the timer
                     iterationStats.timer = null;
                 }
@@ -107,7 +121,8 @@ namespace ghplugin
         /// <param name="iterationLimit">Number of iterations</param>
         /// <param name="directory">Directory that contains the DB</param>
         /// <param name="projectName">Name of the current project</param>
-        private void StartTimer() {
+        private void StartTimer()
+        {
             iterationStats.iterationCount = this.getCurrentDBIteration(iterationStats.directory, iterationStats.projectName);
             // doing this simplifies the iteration limit check in the future
             iterationStats.iterationLimit += iterationStats.iterationCount;
@@ -120,43 +135,81 @@ namespace ghplugin
 
         // End Timer Section
 
-        /* 
-        Commenting schema parsing out because intervals already does the job.
-        Will have to check if this feature still stays relevant in the future before adding it in.
-        Either ways, the way this is implemented right now is complete jank.
+        public struct SolutionSetParameters {
+            public string directory, fitnessConditions, projectName;
+        }
+        private SolutionSetParameters solutionSetParameters;
 
-        /// <summary>
-        /// Parses text into a schema, i.e. key-value pairs of parameter names to types
-        /// </summary>
-        /// <param name="rawText">text to be parsed goes here</param>
-        /// <returns></returns>
-        /// <exception cref="Exception"></exception>
-        public Dictionary<string, string> ParseSchema(string rawText)
-        {
-            Dictionary<string, string> schema = new Dictionary<string, string>();
-            string[] fields = rawText.Split('\n');
+        private HashSet<string> getInputParameters(string projectName, SQLiteConnection DBConnection) {
+            string getTableLayoutQuery      = "SELECT parameters FROM project_layout WHERE project_name=$projectName";
 
-            for (int i = 0; i < fields.Length; i++)
-            {
-                string token = fields[i].Trim();
-                if (token.Length == 0)
-                {
-                    continue;
+            var command = DBConnection.CreateCommand();
+            command.CommandText = getTableLayoutQuery;
+            command.Parameters.AddWithValue("$projectName", projectName);
+            using (var layoutReader = command.ExecuteReader()) {
+                var inputParameters = new HashSet<string>();
+                if (layoutReader.Read()) {
+                    inputParameters = JsonConvert.DeserializeObject<HashSet<string>>(layoutReader.GetString(0));
                 }
-                string[] interim_tokens = token.Split(',');
-                if (interim_tokens.Length == 2)
+                return inputParameters;
+            }
+        }
+
+        protected MorphoSolution[] GetSolutionSet()
+        {
+            List<MorphoSolution> solutions = new List<MorphoSolution>();
+
+            var connBuilder = new SQLiteConnectionStringBuilder();
+            connBuilder.DataSource = $"{solutionSetParameters.directory}/solutions.db";
+            connBuilder.Version = 3;
+            connBuilder.JournalMode = SQLiteJournalModeEnum.Wal;
+            connBuilder.LegacyFormat = false;
+            connBuilder.Pooling = true;
+
+            // 1. make a connection to directory/solutions.db
+            using (var DBConnection = new SQLiteConnection(connBuilder.ToString()))
+            {
+                Console.WriteLine("database was opened by fitness.");
+                DBConnection.Open();
+
+                // 2. form the query
+                var query = "";
+                if (solutionSetParameters.fitnessConditions.Trim().Length > 0)
                 {
-                    schema.Add(interim_tokens[0], interim_tokens[1]);
+                    query = $"SELECT data FROM {solutionSetParameters.projectName} WHERE {solutionSetParameters.fitnessConditions};";
                 }
                 else
                 {
-                    throw new Exception("Invalid Schema Format");
+                    // if the fitness function is empty, select everything
+                    query = $"SELECT data FROM {solutionSetParameters.projectName};";
+                }
+
+                var inputParameters = getInputParameters(solutionSetParameters.projectName, DBConnection);
+
+                // 3. make the query
+                var command = DBConnection.CreateCommand();
+                command.CommandText = query;
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        // 4. deserialize and store the results in an array
+                        var json_object = reader.GetString(0);
+                        var culledSolution = JsonConvert.DeserializeObject<SaveToDisk.SerializableSolution>(json_object).parameters;
+                        // remove non-input fields
+                        foreach (KeyValuePair<string, double> pair in culledSolution)
+                        {
+                            if (!inputParameters.Contains(pair.Key))
+                            {
+                                culledSolution.Remove(pair.Key);
+                            }
+                        }
+                        solutions.Add(new MorphoSolution{values = culledSolution});
+                    }
                 }
             }
-
-            return schema;
+            return solutions.ToArray();
         }
-        */
 
         /// <summary>
         /// Creates a gene generation cycle that runs for a set amount of iterations.
@@ -172,11 +225,6 @@ namespace ghplugin
             randomGenerators = new Dictionary<int, Random>();
         }
 
-        private void checkError(bool success)
-        {
-            if (!success)
-                throw new Exception("Parameters Missing.");
-        }
 
         protected override void RegisterInputParams(GH_Component.GH_InputParamManager pManager)
         {
@@ -192,8 +240,6 @@ namespace ghplugin
             // pManager.AddTextParameter("Input Parameter Set", "Input Parameter Set", "Describes the set of input parameters and their data types.", GH_ParamAccess.item);
             pManager.AddTextParameter("Intervals", "intervals", "Set of Intervals for each input.", GH_ParamAccess.list);
             pManager.AddIntegerParameter("Iteration Limit", "iterations", "Number of iterations to run the generator for.", GH_ParamAccess.item);
-            pManager.AddTextParameter("Directory", "directory", "Project directory to which the results are saved.", GH_ParamAccess.item);
-            pManager.AddTextParameter("Project Name", "project_name", "Name of the project.", GH_ParamAccess.item);
             pManager[0].Optional = true;
             pManager[1].Optional = true;
             pManager[2].Optional = true;
@@ -208,7 +254,8 @@ namespace ghplugin
         double generateRandomDouble(double start, double end)
         {
             // random generators are preserved through runs
-            if (!randomGenerators.ContainsKey(this.seed)) {
+            if (!randomGenerators.ContainsKey(this.seed))
+            {
                 randomGenerators.Add(this.seed, new Random(this.seed));
             }
             var generator = randomGenerators[this.seed];
@@ -221,7 +268,8 @@ namespace ghplugin
         int generateRandomInt(int start, int end)
         {
             // random generators are preserved through runs
-            if (!randomGenerators.ContainsKey(this.seed)) {
+            if (!randomGenerators.ContainsKey(this.seed))
+            {
                 randomGenerators.Add(this.seed, new Random(this.seed));
             }
             var generator = randomGenerators[this.seed];
@@ -231,29 +279,41 @@ namespace ghplugin
             return result;
         }
 
+        private static void checkError(bool success)
+        {
+            if (!success)
+                throw new Exception("parameters missing.");
+        }
+
+        private static List<T> GetParameterList<T>(IGH_DataAccess DA, string fieldName) {
+            List<T> data_items = new List<T>();
+            checkError(DA.GetDataList(fieldName, data_items));
+            return data_items;
+        }
+
+        private static T GetParameter<T>(IGH_DataAccess DA, string fieldName)
+        {
+            T data_item = default;
+            checkError(DA.GetData(fieldName, ref data_item));
+            return data_item;
+        }
+
         protected override void SolveInstance(IGH_DataAccess DA)
         {
-            string parameterString = "";
-            if (!DA.GetData("Algorithm Parameters", ref parameterString))
-            {
+            try {
+                string parameterString = GetParameter<string>(DA, "Algorithm Parameters");
+                parameters = JsonConvert.DeserializeObject<ParameterSet>(parameterString);
+            } catch {
                 // if there are no parameters provided, set them to default.
                 parameters.Default();
             }
-            parameters = JsonConvert.DeserializeObject<ParameterSet>(parameterString);
 
-
-            /* Commenting this out because of the reason above.
-            // string schemaString = "";
-            // checkError(DA.GetData("Input Parameter Set", ref schemaString));
-            // schema = ParseSchema(schemaString);
-            */
-
-
-            string solutionSetString = "[]";
-            checkError(DA.GetData("Solution Set", ref solutionSetString));
+            // we get the parameters needed to fetch the solution set from the local database
+            string solutionSetString = GetParameter<string>(DA, "Solution Set");
             try
             {
-                solutionSet = JsonConvert.DeserializeObject<MorphoSolution[]>(solutionSetString);
+                solutionSetParameters = JsonConvert.DeserializeObject<SolutionSetParameters>(solutionSetString);
+                solutionSet = GetSolutionSet();
             }
             catch
             {
@@ -261,9 +321,8 @@ namespace ghplugin
             }
 
 
-            // collect intervals from the input and dump them into `intervals`
-            List<string> encodedIntervals = new List<string>();
-            checkError(DA.GetDataList("Intervals", encodedIntervals));
+            // collect intervals from the input and dump them into a variable
+            var encodedIntervals = GetParameterList<string>(DA, "Intervals");
             intervals.Clear();
             int sourceCounter = 0;
             foreach (string encodedInterval in encodedIntervals)
@@ -281,26 +340,28 @@ namespace ghplugin
             }
 
             // collect iteration details and start the timer
-            int tempIterationLimit = 0;
-            checkError(DA.GetData("Directory", ref iterationStats.directory));
-            checkError(DA.GetData("Project Name", ref iterationStats.projectName));
-            checkError(DA.GetData("Iteration Limit", ref tempIterationLimit));
+            iterationStats.directory = solutionSetParameters.directory;
+            iterationStats.projectName = solutionSetParameters.projectName;
+            int tempIterationLimit = GetParameter<int>(DA, "Iteration Limit");
             iterationStats.iterationLimit = (long)tempIterationLimit;
-            if (iterationStats.timer == null && !iterationStats.expired) {
+
+            if (!iterationStats.expired)
+            {
                 iterationStats.expired = true;
                 StartTimer();
             }
 
 
-            bool initiateComputation = false;
-            checkError(DA.GetData("Initiate", ref initiateComputation));
+            // start computing the solutions
+            bool initiateComputation = GetParameter<bool>(DA, "Initiate");
             Dictionary<string, double> outputs = new Dictionary<string, double>();
             if (initiateComputation)
             {
                 int seed = (int)DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1)).TotalSeconds % int.MaxValue;
                 Random generator = new Random(seed);
                 int parent1 = -1, parent2 = -1;
-                if (solutionSet.Length > 0) {
+                if (solutionSet.Length > 0)
+                {
                     parent1 = generator.Next() % solutionSet.Length;
                     parent2 = generator.Next() % solutionSet.Length;
                 }
@@ -356,14 +417,17 @@ namespace ghplugin
                 double[] output_doubles = new double[outputs.Count];
                 string[] output_human = new string[outputs.Count];
                 var index = 0;
-                foreach (var outputPair in outputs) {
+                foreach (var outputPair in outputs)
+                {
                     output_doubles[index] = outputPair.Value;
                     output_human[index] = $"{outputPair.Key},{outputPair.Value}";
-                    index ++;
+                    index++;
                 }
                 DA.SetDataList(0, output_doubles);
                 DA.SetDataList(1, output_human);
-            } else {
+            }
+            else
+            {
                 // resetting the timer on a toggle switch
                 iterationStats.expired = false;
             }
@@ -399,17 +463,21 @@ namespace ghplugin
         {
             string selfNickname = this.NickName;
             string generatorOutput = "";
-            if (!DA.GetData(0, ref generatorOutput)) {
+            if (!DA.GetData(0, ref generatorOutput))
+            {
                 return;
             }
 
             var outputs = JsonConvert.DeserializeObject<Dictionary<string, double>>(generatorOutput);
-            if (!outputs.ContainsKey(selfNickname)) {
+            if (!outputs.ContainsKey(selfNickname))
+            {
                 return;
-            } else {
+            }
+            else
+            {
                 DA.SetData(0, outputs[selfNickname]);
             }
-            
+
         }
 
         public override GH_Exposure Exposure => GH_Exposure.primary;
