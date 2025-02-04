@@ -7,15 +7,22 @@ using Grasshopper.Kernel;
 using System.Data.SQLite;
 using System.Timers;
 using System.Diagnostics;
-using Eto.Forms;
 
 namespace ghplugin
 {
     using NumberSlider = Grasshopper.Kernel.Special.GH_NumberSlider;
 
+    public delegate void ExpireSolutionDelegate(Boolean recompute);
+
+    class ParameterException : Exception { }
+
     public struct MorphoSolution
     {
         public Dictionary<string, double> values;
+    }
+
+    public struct SolutionSetParameters {
+        public string directory, projectName, fitnessConditions;
     }
 
     public class GeneGenerator : GH_Component
@@ -27,12 +34,11 @@ namespace ghplugin
             public bool is_constant;
             public string nickname;
         }
-        private ParameterSet parameters;
+        private AlgorithmParameterSet algorithmParameters;
         private bool is_systematic = false;
         private int seed;
         private Dictionary<int, Random> randomGenerators;
-        private MorphoSolution[] solutionSet;
-        private Dictionary<string, NamedMorphoInterval> intervals;
+        
 
         // Timer Section
 
@@ -61,12 +67,10 @@ namespace ghplugin
 
                 using (SQLiteConnection conn = new SQLiteConnection(connBuilder.ToString()))
                 {
-                    Console.WriteLine("database was opened by GeneGenerator.");
                     conn.Open();
                     string query = $"select COUNT(*) from {projectName}";
                     var command = conn.CreateCommand();
                     command.CommandText = query;
-                    Console.WriteLine("database was closed by GeneGenerator.");
                     return (long)command.ExecuteScalar();
                 }
             }
@@ -92,20 +96,21 @@ namespace ghplugin
             var currentIterationCount = getCurrentDBIteration(iterationStats.directory, iterationStats.projectName);
             if (currentIterationCount > this.iterationStats.iterationCount)
             {
-                Console.Write("current iteration:");
+                Console.WriteLine("current iteration:");
                 Console.WriteLine(currentIterationCount);
-                // TODO something is screwed up here, check it
                 iterationStats.iterationCount = currentIterationCount;
-                if (iterationStats.iterationCount < iterationStats.iterationLimit)
+                if (currentIterationCount < iterationStats.iterationLimit)
                 {
                     iterationStats.timer.Interval = 1000; //ms
                     iterationStats.timer.Start();
-                    Console.WriteLine("Timer expired.");
+                    Console.WriteLine("iteration limit:");
+                    Console.WriteLine(iterationStats.iterationLimit);
                 }
                 else
                 {
                     // we nullify the timer, so that re-enabling the generator restarts the timer
                     iterationStats.timer = null;
+                    return;
                 }
 
                 // Cannot call ExpireSolution(true) directly if it's not a UI component. So we do this.
@@ -124,43 +129,63 @@ namespace ghplugin
         private void StartTimer()
         {
             iterationStats.iterationCount = this.getCurrentDBIteration(iterationStats.directory, iterationStats.projectName);
-            // doing this simplifies the iteration limit check in the future
-            iterationStats.iterationLimit += iterationStats.iterationCount;
-
             iterationStats.timer = new Timer(1000); //1s
             iterationStats.timer.AutoReset = false;
             iterationStats.timer.Elapsed += setTimerExpired;
             iterationStats.timer.Start();
         }
 
+        private void StopTimer()
+        {
+            iterationStats.iterationCount = 0;
+            if (iterationStats.timer != null)
+            {
+                iterationStats.timer.Stop();
+            }
+            iterationStats.timer = null;
+        }
+
         // End Timer Section
 
-        public struct SolutionSetParameters {
-            public string directory, fitnessConditions, projectName;
+        private IList<IGH_Param> GetSources(string name) {
+            foreach (var param in Params.Input) {
+                if (param.Name == name) {
+                    return param.Sources;
+                }
+            }
+            throw new Exception($"Could not find the field denoted by {name}");
         }
-        private SolutionSetParameters solutionSetParameters;
 
-        private HashSet<string> getInputParameters(string projectName, SQLiteConnection DBConnection) {
-            string getTableLayoutQuery      = "SELECT parameters FROM project_layout WHERE project_name=$projectName";
+        private HashSet<string> getInputParameters(string projectName, SQLiteConnection DBConnection)
+        {
+            string getTableLayoutQuery = "SELECT parameters FROM project_layout WHERE project_name=$projectName";
 
             var command = DBConnection.CreateCommand();
             command.CommandText = getTableLayoutQuery;
             command.Parameters.AddWithValue("$projectName", projectName);
-            using (var layoutReader = command.ExecuteReader()) {
+            using (var layoutReader = command.ExecuteReader())
+            {
                 var inputParameters = new HashSet<string>();
-                if (layoutReader.Read()) {
+                if (layoutReader.Read())
+                {
                     inputParameters = JsonConvert.DeserializeObject<HashSet<string>>(layoutReader.GetString(0));
                 }
                 return inputParameters;
             }
         }
 
-        protected MorphoSolution[] GetSolutionSet()
+        /// <summary>
+        /// Fetches a number of valid solutions from the database satisfying fitnessConditions.
+        /// </summary>
+        /// <param name="fitnessConditions">An SQL condition set assembled by the FitnessFilter components.</param>
+        /// <param name="directory">Struct containing the directory path and project name.</param>
+        /// <returns></returns>
+        protected MorphoSolution[] GetSolutionSet(string fitnessConditions, DirectoryParameters directory)
         {
             List<MorphoSolution> solutions = new List<MorphoSolution>();
 
             var connBuilder = new SQLiteConnectionStringBuilder();
-            connBuilder.DataSource = $"{solutionSetParameters.directory}/solutions.db";
+            connBuilder.DataSource = $"{directory.directory}/solutions.db";
             connBuilder.Version = 3;
             connBuilder.JournalMode = SQLiteJournalModeEnum.Wal;
             connBuilder.LegacyFormat = false;
@@ -169,22 +194,23 @@ namespace ghplugin
             // 1. make a connection to directory/solutions.db
             using (var DBConnection = new SQLiteConnection(connBuilder.ToString()))
             {
-                Console.WriteLine("database was opened by fitness.");
                 DBConnection.Open();
 
                 // 2. form the query
                 var query = "";
-                if (solutionSetParameters.fitnessConditions.Trim().Length > 0)
+                if (fitnessConditions.Trim().Length > 0)
                 {
-                    query = $"SELECT data FROM {solutionSetParameters.projectName} WHERE {solutionSetParameters.fitnessConditions};";
+                    // TODO SQL CHANGE
+                    query = $"SELECT data FROM {directory.projectName} WHERE {fitnessConditions};";
                 }
                 else
                 {
+                    // TODO SQL CHANGE
                     // if the fitness function is empty, select everything
-                    query = $"SELECT data FROM {solutionSetParameters.projectName};";
+                    query = $"SELECT data FROM {directory.projectName};";
                 }
 
-                var inputParameters = getInputParameters(solutionSetParameters.projectName, DBConnection);
+                var inputParameters = getInputParameters(directory.projectName, DBConnection);
 
                 // 3. make the query
                 var command = DBConnection.CreateCommand();
@@ -204,7 +230,7 @@ namespace ghplugin
                                 culledSolution.Remove(pair.Key);
                             }
                         }
-                        solutions.Add(new MorphoSolution{values = culledSolution});
+                        solutions.Add(new MorphoSolution { values = culledSolution });
                     }
                 }
             }
@@ -220,7 +246,6 @@ namespace ghplugin
             "Morpho", "Genetic Search")
         {
             // schema = new Dictionary<string, string> { };
-            intervals = new Dictionary<string, NamedMorphoInterval>();
             seed = (int)DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1)).TotalSeconds;
             randomGenerators = new Dictionary<int, Random>();
         }
@@ -236,10 +261,10 @@ namespace ghplugin
             pManager.AddNumberParameter("Seed", "seed", "Seed for random generation.", GH_ParamAccess.item);
             pManager.AddTextParameter("Algorithm Parameters", "params", "Parameters for Generating Genes.", GH_ParamAccess.item);
             pManager.AddBooleanParameter("Initiate", "initiate", "Initiates the Gene Generator.", GH_ParamAccess.item);
-            pManager.AddTextParameter("Solution Set", "solution_set", "Set of Soultions to use for Gene Generation.", GH_ParamAccess.item);
-            // pManager.AddTextParameter("Input Parameter Set", "Input Parameter Set", "Describes the set of input parameters and their data types.", GH_ParamAccess.item);
+            pManager.AddTextParameter("Fitness Filters", "fitness_filters", "Conditions to filter the population by", GH_ParamAccess.item);
             pManager.AddTextParameter("Intervals", "intervals", "Set of Intervals for each input.", GH_ParamAccess.list);
             pManager.AddIntegerParameter("Iteration Limit", "iterations", "Number of iterations to run the generator for.", GH_ParamAccess.item);
+            pManager.AddTextParameter("Directory", "Directory", "Directory to save generations results under. Should be connected to the Directory creature.", GH_ParamAccess.item);
             pManager[0].Optional = true;
             pManager[1].Optional = true;
             pManager[2].Optional = true;
@@ -279,13 +304,107 @@ namespace ghplugin
             return result;
         }
 
+        /// <summary>
+        /// Generate a solution
+        /// </summary>
+        /// <param name="DA"></param>
+        private void GenerateSolution(IGH_DataAccess DA, MorphoSolution[] solutionSet, Dictionary<string, NamedMorphoInterval> intervals) {
+            Dictionary<string, double> outputs = new Dictionary<string, double>();
+            int seed = (int)DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1)).TotalSeconds % int.MaxValue;
+            Random generator = new Random(seed);
+            int parent1 = -1, parent2 = -1;
+            if (solutionSet.Length > 0)
+            {
+                parent1 = generator.Next() % solutionSet.Length;
+                parent2 = generator.Next() % solutionSet.Length;
+            }
+
+            // foreach (KeyValuePair<string, string> kv in schema)
+            foreach (KeyValuePair<string, NamedMorphoInterval> interval in intervals)
+            {
+                // string param_name = kv.Key;
+                string param_name = interval.Key;
+                // HUX
+                var variant = generateRandomInt(0, 3);
+                var random_treshold = generateRandomDouble(0, 1);
+
+                if (!is_systematic || random_treshold < algorithmParameters.probability_mutation || parent1 == -1 || parent2 == -1)
+                {
+                    // generate if system is not systematic, if it mutates by chance or if there are not parents
+                    double point_on_scale;
+                    if (is_systematic)
+                    {
+                        // TODO fix nonsencical generation code
+                        point_on_scale = generateRandomDouble(intervals[param_name].start, intervals[param_name].end);
+                    }
+                    else
+                    {
+                        point_on_scale = generateRandomDouble(intervals[param_name].start, intervals[param_name].end);
+                    }
+                    outputs.Remove(param_name);
+                    outputs.Add(param_name, point_on_scale);
+                }
+                else if (is_systematic)
+                {
+                    // only use the solution set if the generation is systematic
+                    if (variant == 0)
+                    {
+                        outputs.Remove(param_name);
+                        outputs.Add(param_name, solutionSet[parent1].values[param_name]);
+                    }
+                    else if (variant == 1)
+                    {
+                        outputs.Remove(param_name);
+                        outputs.Add(param_name, solutionSet[parent2].values[param_name]);
+                    }
+                    else if (variant == 2)
+                    {
+                        // crossover
+                        outputs.Remove(param_name);
+                        outputs.Add(param_name, (solutionSet[parent1].values[param_name] + solutionSet[parent2].values[param_name]) / 2);
+                    }
+                }
+            }
+
+            // set the ouput parameters
+            double[] output_doubles = new double[outputs.Count];
+            string[] output_human = new string[outputs.Count];
+            var index = 0;
+            foreach (var outputPair in outputs)
+            {
+                output_doubles[index] = outputPair.Value;
+                output_human[index] = $"{outputPair.Key},{outputPair.Value}";
+                index++;
+            }
+            DA.SetDataList(0, output_doubles);
+            DA.SetDataList(1, output_human);
+        }
+
+        private Dictionary<string, NamedMorphoInterval> CollectIntervals(IList<IGH_Param> intervalSources, List<string>  encodedIntervals) {
+            Dictionary<string, NamedMorphoInterval> intervals = new Dictionary<string, NamedMorphoInterval>();
+            // we associate each interval input with the source component of the intervals to fetch the nickname
+            for (int encodedIntervalIndex = 0; encodedIntervalIndex < encodedIntervals.Count; encodedIntervalIndex ++) {
+                MorphoInterval temp_interval = JsonConvert.DeserializeObject<MorphoInterval>(encodedIntervals[encodedIntervalIndex]);
+                var nickname = intervalSources[encodedIntervalIndex].NickName;
+                intervals.Add(nickname, new NamedMorphoInterval
+                {
+                    nickname = nickname,
+                    start = temp_interval.start,
+                    end = temp_interval.end,
+                    is_constant = temp_interval.is_constant
+                });
+            }
+            return intervals;
+        }
+
         private static void checkError(bool success)
         {
             if (!success)
-                throw new Exception("parameters missing.");
+                throw new ParameterException();
         }
 
-        private static List<T> GetParameterList<T>(IGH_DataAccess DA, string fieldName) {
+        private static List<T> GetParameterList<T>(IGH_DataAccess DA, string fieldName)
+        {
             List<T> data_items = new List<T>();
             checkError(DA.GetDataList(fieldName, data_items));
             return data_items;
@@ -300,136 +419,59 @@ namespace ghplugin
 
         protected override void SolveInstance(IGH_DataAccess DA)
         {
-            try {
-                string parameterString = GetParameter<string>(DA, "Algorithm Parameters");
-                parameters = JsonConvert.DeserializeObject<ParameterSet>(parameterString);
-            } catch {
-                // if there are no parameters provided, set them to default.
-                parameters.Default();
-            }
-
-            // we get the parameters needed to fetch the solution set from the local database
-            string solutionSetString = GetParameter<string>(DA, "Solution Set");
             try
             {
-                solutionSetParameters = JsonConvert.DeserializeObject<SolutionSetParameters>(solutionSetString);
-                solutionSet = GetSolutionSet();
-            }
-            catch
-            {
-                // nothing happens if the solution set parsing fails
-            }
-
-
-            // collect intervals from the input and dump them into a variable
-            var encodedIntervals = GetParameterList<string>(DA, "Intervals");
-            intervals.Clear();
-            int sourceCounter = 0;
-            foreach (string encodedInterval in encodedIntervals)
-            {
-                MorphoInterval temp_interval = JsonConvert.DeserializeObject<MorphoInterval>(encodedInterval);
-                var nickname = Params.Input[5].Sources[sourceCounter].NickName;
-                intervals.Add(nickname, new NamedMorphoInterval
+                try
                 {
-                    nickname = Params.Input[5].Sources[sourceCounter].NickName,
-                    start = temp_interval.start,
-                    end = temp_interval.end,
-                    is_constant = temp_interval.is_constant
-                });
-                sourceCounter++;
-            }
-
-            // collect iteration details and start the timer
-            iterationStats.directory = solutionSetParameters.directory;
-            iterationStats.projectName = solutionSetParameters.projectName;
-            int tempIterationLimit = GetParameter<int>(DA, "Iteration Limit");
-            iterationStats.iterationLimit = (long)tempIterationLimit;
-
-            if (!iterationStats.expired)
-            {
-                iterationStats.expired = true;
-                StartTimer();
-            }
-
-
-            // start computing the solutions
-            bool initiateComputation = GetParameter<bool>(DA, "Initiate");
-            Dictionary<string, double> outputs = new Dictionary<string, double>();
-            if (initiateComputation)
-            {
-                int seed = (int)DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1)).TotalSeconds % int.MaxValue;
-                Random generator = new Random(seed);
-                int parent1 = -1, parent2 = -1;
-                if (solutionSet.Length > 0)
+                    string parameterString = GetParameter<string>(DA, "Algorithm Parameters");
+                    algorithmParameters = JsonConvert.DeserializeObject<AlgorithmParameterSet>(parameterString);
+                }
+                catch
                 {
-                    parent1 = generator.Next() % solutionSet.Length;
-                    parent2 = generator.Next() % solutionSet.Length;
+                    // if there are no parameters provided, set them to default.
+                    algorithmParameters.Default();
                 }
 
-                // foreach (KeyValuePair<string, string> kv in schema)
-                foreach (KeyValuePair<string, NamedMorphoInterval> interval in intervals)
-                {
-                    // string param_name = kv.Key;
-                    string param_name = interval.Key;
-                    // HUX
-                    var variant = generateRandomInt(0, 3);
-                    var random_treshold = generateRandomDouble(0, 1);
+                // we get the parameters needed to fetch the solution set from the local database
+                string fitnessFilterString = GetParameter<string>(DA, "Fitness Filters");
+                string directoryString = GetParameter<string>(DA, "Directory");
+                var directoryParameters = JsonConvert.DeserializeObject<DirectoryParameters>(directoryString);
+                MorphoSolution[] solutionSet = GetSolutionSet(fitnessFilterString, directoryParameters);
 
-                    if (!is_systematic || random_treshold < parameters.probability_mutation || parent1 == -1 || parent2 == -1)
-                    {
-                        // generate if system is not systematic, if it mutates by chance or if there are not parents
-                        double point_on_scale;
-                        if (is_systematic)
-                        {
-                            // TODO fix nonsencical generation code
-                            point_on_scale = generateRandomDouble(intervals[param_name].start, intervals[param_name].end);
-                        }
-                        else
-                        {
-                            point_on_scale = generateRandomDouble(intervals[param_name].start, intervals[param_name].end);
-                        }
-                        outputs.Remove(param_name);
-                        outputs.Add(param_name, point_on_scale);
-                    }
-                    else if (is_systematic)
-                    {
-                        // only use the solution set if the generation is systematic
-                        if (variant == 0)
-                        {
-                            outputs.Remove(param_name);
-                            outputs.Add(param_name, solutionSet[parent1].values[param_name]);
-                        }
-                        else if (variant == 1)
-                        {
-                            outputs.Remove(param_name);
-                            outputs.Add(param_name, solutionSet[parent2].values[param_name]);
-                        }
-                        else if (variant == 2)
-                        {
-                            // crossover
-                            outputs.Remove(param_name);
-                            outputs.Add(param_name, (solutionSet[parent1].values[param_name] + solutionSet[parent2].values[param_name]) / 2);
-                        }
-                    }
+                // collect intervals from the input and dump them into a variable
+                var intervalSources = GetSources("Intervals");
+                var encodedIntervals = GetParameterList<string>(DA, "Intervals");
+                var intervals = CollectIntervals(intervalSources, encodedIntervals);
+
+                // collect iteration details and start the timer
+                if (!iterationStats.expired)
+                {
+                    iterationStats.directory = directoryParameters.directory;
+                    iterationStats.projectName = directoryParameters.projectName;
+                    int tempIterationLimit = GetParameter<int>(DA, "Iteration Limit");
+                    iterationStats.iterationLimit = getCurrentDBIteration(iterationStats.directory, iterationStats.projectName) + (long)tempIterationLimit;
+                    iterationStats.expired = true;
+                    StartTimer();
                 }
 
-                // set the ouput parameters
-                double[] output_doubles = new double[outputs.Count];
-                string[] output_human = new string[outputs.Count];
-                var index = 0;
-                foreach (var outputPair in outputs)
+
+                // start computing the solutions
+                bool initiateComputation = GetParameter<bool>(DA, "Initiate");
+                Dictionary<string, double> outputs = new Dictionary<string, double>();
+                if (initiateComputation && iterationStats.iterationCount < iterationStats.iterationLimit)
                 {
-                    output_doubles[index] = outputPair.Value;
-                    output_human[index] = $"{outputPair.Key},{outputPair.Value}";
-                    index++;
+                    GenerateSolution(DA, solutionSet, intervals);
                 }
-                DA.SetDataList(0, output_doubles);
-                DA.SetDataList(1, output_human);
+                else
+                {
+                    // resetting the timer on a toggle switch
+                    iterationStats.expired = false;
+                    StopTimer();
+                }
             }
-            else
+            catch (ParameterException)
             {
-                // resetting the timer on a toggle switch
-                iterationStats.expired = false;
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Missing Parameters");
             }
         }
 
@@ -477,7 +519,6 @@ namespace ghplugin
             {
                 DA.SetData(0, outputs[selfNickname]);
             }
-
         }
 
         public override GH_Exposure Exposure => GH_Exposure.primary;

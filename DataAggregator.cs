@@ -32,12 +32,6 @@ namespace ghplugin
         {
         }
 
-        private void checkError(bool success)
-        {
-            if (!success)
-                throw new Exception("Parameters Missing.");
-        }
-
         private Dictionary<string, double>  ParseCsv(List<string> text) {
             Dictionary<string, double> result = new Dictionary<string, double>();
             foreach (string line in text) {
@@ -62,18 +56,27 @@ namespace ghplugin
             pManager.AddTextParameter("Aggregated Data", "Aggregated Data", "Aggregated output. Connect to Morpho Data Access component.", GH_ParamAccess.item);
         }
 
+        private static void checkError(bool success)
+        {
+            if (!success)
+                throw new Exception("parameters missing.");
+        }
+
+        private static List<T> GetParameterList<T>(IGH_DataAccess DA, string fieldName) {
+            List<T> data_items = new List<T>();
+            checkError(DA.GetDataList(fieldName, data_items));
+            return data_items;
+        }
+
         protected override void SolveInstance(IGH_DataAccess DA)
         {
             MorphoAggregatedData result = new MorphoAggregatedData();
-            List<string> input_csv = new List<string>();
-            DA.GetDataList("Inputs", input_csv);
+            var input_csv = GetParameterList<string>(DA, "Inputs");
             result.inputs = ParseCsv(input_csv);
-            Console.WriteLine(result.inputs.Count);
 
             result.outputs = new Dictionary<string, double>();
-            List<double> outputList = new List<double>();
+            var outputList = GetParameterList<double>(DA, "Outputs");
             int sourceCounter = 0;
-            DA.GetDataList("Outputs", outputList);
             foreach (double outputValue in outputList)
             {
                 result.outputs.Add(
@@ -83,10 +86,11 @@ namespace ghplugin
                 sourceCounter++;
             }
 
+            // files is optional, so no error checking
             result.files = new Dictionary<string, string>();
-            List<string> filesList = new List<string>();
-            sourceCounter = 0;
+            var filesList = new List<string>();
             DA.GetDataList("Files", filesList);
+            sourceCounter = 0;
             foreach (string filename in filesList)
             {
                 result.files.Add(

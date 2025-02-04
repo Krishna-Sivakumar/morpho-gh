@@ -1,13 +1,17 @@
 using Grasshopper.Kernel;
 using Newtonsoft.Json;
 using System;
-using System.Collections.Generic;
-using System.Data.SQLite;
+using System.IO;
 
 namespace ghplugin
 {
 
-    public class Fitness: GH_Component
+    public struct DirectoryParameters {
+        public string directory;
+        public string projectName;
+    }
+
+    public class DirectoryComponent: GH_Component
     {
 
         /// <summary>
@@ -17,9 +21,9 @@ namespace ghplugin
         /// Subcategory the panel. If you use non-existing tab or panel names, 
         /// new tabs/panels will automatically be created.
         /// </summary>
-        public Fitness()
-          : base("Fitness", "Fitness",
-            "Filters out solutions from the global solution set",
+        public DirectoryComponent()
+          : base("Directory", "Directory",
+            "Location and Project Name under which the data should be saved",
             "Morpho", "Genetic Search")
         {
         }
@@ -35,12 +39,11 @@ namespace ghplugin
             // to import lists or trees of values, modify the ParamAccess flag.
             pManager.AddTextParameter("Directory", "Directory", "Directory where the data should be saved into.", GH_ParamAccess.item);
             pManager.AddTextParameter("Project Name", "Project Name", "Name of the project.", GH_ParamAccess.item);
-            pManager.AddTextParameter("Fitness Conditions", "Fitness Conditions", "Conditions imposed on the solution set", GH_ParamAccess.item);
         }
 
         protected override void RegisterOutputParams(GH_OutputParamManager pManager)
         {
-            pManager.AddTextParameter("Solution Set", "Solution Set", "Solutions filtered out from the set using the provided conditions", GH_ParamAccess.item);
+            pManager.AddTextParameter("Output", "Output", "Should be connected to GeneGenerator and SaveToDisk", GH_ParamAccess.item);
         }
 
         protected static void checkError(bool success, string errorMessage) {
@@ -67,12 +70,30 @@ namespace ghplugin
         {
             string directory = GetParameter<string>(DA, 0);
             string projectName = GetParameter<string>(DA, 1);
-            string fitnessConditions = GetParameter<string>(DA, 2); // TODO fitness condition should be its own set of component
 
-            DA.SetData(0, JsonConvert.SerializeObject(new SolutionSetParameters{
+            // Directory must exist and be writable
+            if (!Directory.Exists(directory)) {
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Folder does not exist.");
+                return;
+            }
+
+            try {
+                using (FileStream fs = File.Create(
+                    Path.Combine(
+                        directory,
+                        Path.GetRandomFileName()
+                    ),
+                    1,
+                    FileOptions.DeleteOnClose
+                )) {
+                }
+            } catch {
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Folder cannot be written to.");
+            }
+
+            DA.SetData(0, JsonConvert.SerializeObject(new DirectoryParameters{
                 directory = directory,
                 projectName = projectName,
-                fitnessConditions = fitnessConditions
             }));
         }
 
@@ -97,6 +118,6 @@ namespace ghplugin
         /// It is vital this Guid doesn't change otherwise old ghx files 
         /// that use the old ID will partially fail during loading.
         /// </summary>
-        public override Guid ComponentGuid => new Guid("296b073b-0e8c-47a0-970a-04f447df42ce");
+        public override Guid ComponentGuid => new Guid("37787567-b748-46a6-9321-841964d13ba5");
     }
 }

@@ -3,7 +3,7 @@ using Newtonsoft.Json;
 
 using Grasshopper.Kernel;
 
-struct ParameterSet
+struct AlgorithmParameterSet
 {
   public double probability_xover;
   public double probability_mutation;
@@ -80,7 +80,7 @@ namespace ghplugin
     /// to store data in output parameters.</param>
     protected override void SolveInstance(IGH_DataAccess DA)
     {
-      ParameterSet p = new ParameterSet();
+      AlgorithmParameterSet p = new AlgorithmParameterSet();
 
       checkError(DA.GetData("Cross-Over Probability", ref p.probability_xover));
       checkError(DA.GetData("Mutation Probability", ref p.probability_mutation));

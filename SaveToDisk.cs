@@ -42,8 +42,7 @@ namespace ghplugin
             // All parameters must have the correct access type. If you want 
             // to import lists or trees of values, modify the ParamAccess flag.
             pManager.AddTextParameter("Aggregated Data", "Aggregated Data", "Aggregated data to be saved.", GH_ParamAccess.item);
-            pManager.AddTextParameter("Directory", "Directory", "Directory where the data should be saved into.", GH_ParamAccess.item);
-            pManager.AddTextParameter("Project Name", "Project Name", "Name of the project.", GH_ParamAccess.item);
+            pManager.AddTextParameter("Directory", "Directory", "Directory to save the data under.", GH_ParamAccess.item);
             pManager.AddBooleanParameter("Enabled", "Enabled", "Enables the Component", GH_ParamAccess.item);
         }
 
@@ -195,18 +194,19 @@ namespace ghplugin
         protected override void SolveInstance(IGH_DataAccess DA)
         {
             string aggDataJson = GetParameter<string>(DA, 0);
-            string directory = GetParameter<string>(DA, 1);
-            string projectName = GetParameter<string>(DA, 2);
-            bool enabled = GetParameter<bool>(DA, 3);
+            string directoryString = GetParameter<string>(DA, 1);
+            bool enabled = GetParameter<bool>(DA, 2);
 
-            projectName = System.Security.SecurityElement.Escape(projectName);
+            var directoryObject = JsonConvert.DeserializeObject<DirectoryParameters>(directoryString);
+
+            var projectName = System.Security.SecurityElement.Escape(directoryObject.projectName);
 
             if (!enabled) {
                 return;
             }
 
             // check if the directory is valid
-            if (!Directory.Exists(directory))
+            if (!Directory.Exists(directoryObject.directory))
             {
                 throw new Exception("Directory does not exist.");
             }
@@ -242,7 +242,7 @@ namespace ghplugin
             // BEGIN Writing to Local DB
 
             var connBuilder = new SQLiteConnectionStringBuilder();
-            connBuilder.DataSource = $"{directory}/solutions.db";
+            connBuilder.DataSource = $"{directoryObject.directory}/solutions.db";
             connBuilder.Version = 3;
             connBuilder.JournalMode = SQLiteJournalModeEnum.Wal;
             connBuilder.LegacyFormat = false;
@@ -250,8 +250,6 @@ namespace ghplugin
 
             using (var DBConnection = new SQLiteConnection(connBuilder.ToString()))
             {
-                Console.WriteLine("database was opened by SaveToDisk in WAL mode.");
-                Console.WriteLine("starting save");
                 DBConnection.Open();
 
                 string createTableLayoutQuery = "CREATE TABLE IF NOT EXISTS project_layout (project_name text primary key, parameters jsonb)";
@@ -334,9 +332,8 @@ namespace ghplugin
                 // END Writing to Local DB
 
                 // TODO abort csv insertion in case SQL insertion fails
-                writeToCSV(directory, projectName, solution);
+                writeToCSV(directoryObject.directory, projectName, solution);
             }
-            Console.WriteLine("database was closed by SaveToDisk.");
         }
 
         /// <summary>
