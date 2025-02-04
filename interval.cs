@@ -1,13 +1,16 @@
 using System;
+using System.Timers;
 using Newtonsoft.Json;
 
 using Grasshopper.Kernel;
+using Rhino;
 
 namespace ghplugin
 {
 
   public struct MorphoInterval
   {
+    public string name;
     public double start;
     public double end;
     public bool is_constant;
@@ -57,6 +60,27 @@ namespace ghplugin
       pManager.AddTextParameter("Interval", "interval", "Interval generated", GH_ParamAccess.item);
     }
 
+    private Timer debounce;
+
+    private void expireSolution(object sender, object args) {
+      // we do not want to call ExpireSolution too many times on a nickname change. So we debounce the input by a second.
+      if (debounce == null) {
+        debounce = new Timer(1000);
+        debounce.AutoReset = false;
+        debounce.Elapsed += (object s, ElapsedEventArgs e) => {
+          // Cannot call ExpireSolution(true) directly if it's not a UI component. So we do this.
+          // Refer to https://discourse.mcneel.com/t/system-invalidoperationexception-cross-thread-operation-not-valid/95176.
+          var d = new ExpireSolutionDelegate(ExpireSolution);
+          RhinoApp.InvokeOnUiThread(d, true);
+          debounce.Stop();
+          debounce = null;
+        };
+      } else {
+        debounce.Stop();
+        debounce.Start();
+      }
+    }
+
     /// <summary>
     /// This is the method that actually does the work.
     /// </summary>
@@ -64,7 +88,11 @@ namespace ghplugin
     /// to store data in output parameters.</param>
     protected override void SolveInstance(IGH_DataAccess DA)
     {
+      // needed to respond to nickname changes
+      this.ObjectChanged += expireSolution;
+
       checkError(DA.GetData(0, ref interval.start));
+      interval.name = NickName;
       interval.is_constant = !DA.GetData(1, ref interval.end);
 
       if (interval.start > interval.end) {

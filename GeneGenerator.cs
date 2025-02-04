@@ -146,15 +146,6 @@ namespace ghplugin
 
         // End Timer Section
 
-        private IList<IGH_Param> GetSources(string name) {
-            foreach (var param in Params.Input) {
-                if (param.Name == name) {
-                    return param.Sources;
-                }
-            }
-            throw new Exception($"Could not find the field denoted by {name}");
-        }
-
         private HashSet<string> getInputParameters(string projectName, SQLiteConnection DBConnection)
         {
             string getTableLayoutQuery = "SELECT parameters FROM project_layout WHERE project_name=$projectName";
@@ -307,7 +298,7 @@ namespace ghplugin
         /// Generate a solution
         /// </summary>
         /// <param name="DA"></param>
-        private void GenerateSolution(IGH_DataAccess DA, MorphoSolution[] solutionSet, Dictionary<string, NamedMorphoInterval> intervals) {
+        private void GenerateSolution(IGH_DataAccess DA, MorphoSolution[] solutionSet, Dictionary<string, MorphoInterval> intervals) {
             Dictionary<string, double> outputs = new Dictionary<string, double>();
             int seed = (int)DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1)).TotalSeconds % int.MaxValue;
             Random generator = new Random(seed);
@@ -319,9 +310,8 @@ namespace ghplugin
             }
 
             // foreach (KeyValuePair<string, string> kv in schema)
-            foreach (KeyValuePair<string, NamedMorphoInterval> interval in intervals)
+            foreach (KeyValuePair<string, MorphoInterval> interval in intervals)
             {
-                // string param_name = kv.Key;
                 string param_name = interval.Key;
                 // HUX
                 var variant = generateRandomInt(0, 3);
@@ -382,22 +372,14 @@ namespace ghplugin
         /// <summary>
         /// Deserializes and returns intervals from a set of JSON-encoded interval strings.
         /// </summary>
-        /// <param name="intervalSources"></param>
         /// <param name="encodedIntervals"></param>
         /// <returns></returns>
-        private Dictionary<string, NamedMorphoInterval> CollectIntervals(IList<IGH_Param> intervalSources, List<string>  encodedIntervals) {
-            Dictionary<string, NamedMorphoInterval> intervals = new Dictionary<string, NamedMorphoInterval>();
+        private Dictionary<string, MorphoInterval> CollectIntervals(List<string>  encodedIntervals) {
+            Dictionary<string, MorphoInterval> intervals = new Dictionary<string, MorphoInterval>();
             // we associate each interval input with the source component of the intervals to fetch the nickname
             for (int encodedIntervalIndex = 0; encodedIntervalIndex < encodedIntervals.Count; encodedIntervalIndex ++) {
                 MorphoInterval temp_interval = JsonConvert.DeserializeObject<MorphoInterval>(encodedIntervals[encodedIntervalIndex]);
-                var nickname = intervalSources[encodedIntervalIndex].NickName;
-                intervals.Add(nickname, new NamedMorphoInterval
-                {
-                    nickname = nickname,
-                    start = temp_interval.start,
-                    end = temp_interval.end,
-                    is_constant = temp_interval.is_constant
-                });
+                intervals.Add(temp_interval.name, temp_interval);
             }
             return intervals;
         }
@@ -444,9 +426,8 @@ namespace ghplugin
                 MorphoSolution[] solutionSet = GetSolutionSet(fitnessFilterString, directoryParameters);
 
                 // collect intervals from the input and dump them into a variable
-                var intervalSources = GetSources("Intervals");
                 var encodedIntervals = GetParameterList<string>(DA, "Intervals");
-                var intervals = CollectIntervals(intervalSources, encodedIntervals);
+                var intervals = CollectIntervals(encodedIntervals);
 
                 // collect iteration details and start the timer
                 if (!iterationStats.expired)
