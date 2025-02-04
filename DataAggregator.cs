@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using Newtonsoft.Json;
 
 using Grasshopper.Kernel;
-using Rhino.Geometry;
 
 namespace ghplugin
 {
@@ -53,7 +52,7 @@ namespace ghplugin
 
         protected override void RegisterOutputParams(GH_OutputParamManager pManager)
         {
-            pManager.AddTextParameter("Aggregated Data", "Aggregated Data", "Aggregated output. Connect to Morpho Data Access component.", GH_ParamAccess.item);
+            pManager.AddTextParameter("Aggregated Data", "Aggregated Data", "Aggregated output. Connect to the Morpho SaveToDisk component.", GH_ParamAccess.item);
         }
 
         private static void checkError(bool success)
@@ -70,39 +69,56 @@ namespace ghplugin
 
         protected override void SolveInstance(IGH_DataAccess DA)
         {
-            MorphoAggregatedData result = new MorphoAggregatedData();
-            var input_csv = GetParameterList<string>(DA, "Inputs");
-            result.inputs = ParseCsv(input_csv);
+            try {
+                MorphoAggregatedData result = new MorphoAggregatedData();
+                var input_csv = GetParameterList<string>(DA, "Inputs");
+                // if we get no inputs, we consider it empty (kinda obvious but GetDataList does not error when inputs are empty.)
+                if (input_csv.Count == 0) {
+                    throw new ParameterException();
+                }
 
-            result.outputs = new Dictionary<string, double>();
-            var outputList = GetParameterList<double>(DA, "Outputs");
-            int sourceCounter = 0;
-            foreach (double outputValue in outputList)
-            {
-                result.outputs.Add(
-                    Params.Input[1].Sources[sourceCounter].NickName,
-                    outputValue
-                );
-                sourceCounter++;
+                try {
+                    result.inputs = ParseCsv(input_csv);
+                } catch {
+                    throw new Exception("Input Parsing failed. Is it connected to the GeneGenerator?");
+                }
+
+                result.outputs = new Dictionary<string, double>();
+                var outputList = GetParameterList<double>(DA, "Outputs");
+                int sourceCounter = 0;
+                foreach (double outputValue in outputList)
+                {
+                    result.outputs.Add(
+                        Params.Input[1].Sources[sourceCounter].NickName,
+                        outputValue
+                    );
+                    sourceCounter++;
+                }
+
+                // files is optional, so no error checking
+                result.files = new Dictionary<string, string>();
+                var filesList = new List<string>();
+                DA.GetDataList("Files", filesList);
+                sourceCounter = 0;
+                foreach (string filename in filesList)
+                {
+                    result.files.Add(
+                        Params.Input[3].Sources[sourceCounter].NickName,
+                        filename
+                    );
+                    sourceCounter++;
+                }
+
+                // TODO ingest images as well
+                // need to get the bitmap from a viewport recorder and associate it with a name
+                // refer to https://discourse.mcneel.com/t/capture-viewport-as-image-in-cache/137791/2
+
+                DA.SetData(0, JsonConvert.SerializeObject(result));
+            } catch (ParameterException) {
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Missing Parameters");
+            } catch (Exception e) {
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Error, e.Message);
             }
-
-            // files is optional, so no error checking
-            result.files = new Dictionary<string, string>();
-            var filesList = new List<string>();
-            DA.GetDataList("Files", filesList);
-            sourceCounter = 0;
-            foreach (string filename in filesList)
-            {
-                result.files.Add(
-                    Params.Input[3].Sources[sourceCounter].NickName,
-                    filename
-                );
-                sourceCounter++;
-            }
-
-            // TODO ingest images as well
-
-            DA.SetData(0, JsonConvert.SerializeObject(result));
         }
 
         public override GH_Exposure Exposure => GH_Exposure.primary;

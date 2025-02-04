@@ -14,7 +14,7 @@ namespace ghplugin
 
     public delegate void ExpireSolutionDelegate(Boolean recompute);
 
-    class ParameterException : Exception { }
+    public class ParameterException : Exception { }
 
     public struct MorphoSolution
     {
@@ -101,14 +101,13 @@ namespace ghplugin
                 iterationStats.iterationCount = currentIterationCount;
                 if (currentIterationCount < iterationStats.iterationLimit)
                 {
-                    iterationStats.timer.Interval = 1000; //ms
-                    iterationStats.timer.Start();
                     Console.WriteLine("iteration limit:");
                     Console.WriteLine(iterationStats.iterationLimit);
                 }
                 else
                 {
                     // we nullify the timer, so that re-enabling the generator restarts the timer
+                    iterationStats.timer.Stop();
                     iterationStats.timer = null;
                     return;
                 }
@@ -130,7 +129,7 @@ namespace ghplugin
         {
             iterationStats.iterationCount = this.getCurrentDBIteration(iterationStats.directory, iterationStats.projectName);
             iterationStats.timer = new Timer(1000); //1s
-            iterationStats.timer.AutoReset = false;
+            iterationStats.timer.AutoReset = true;
             iterationStats.timer.Elapsed += setTimerExpired;
             iterationStats.timer.Start();
         }
@@ -380,6 +379,12 @@ namespace ghplugin
             DA.SetDataList(1, output_human);
         }
 
+        /// <summary>
+        /// Deserializes and returns intervals from a set of JSON-encoded interval strings.
+        /// </summary>
+        /// <param name="intervalSources"></param>
+        /// <param name="encodedIntervals"></param>
+        /// <returns></returns>
         private Dictionary<string, NamedMorphoInterval> CollectIntervals(IList<IGH_Param> intervalSources, List<string>  encodedIntervals) {
             Dictionary<string, NamedMorphoInterval> intervals = new Dictionary<string, NamedMorphoInterval>();
             // we associate each interval input with the source component of the intervals to fetch the nickname
@@ -458,7 +463,7 @@ namespace ghplugin
                 // start computing the solutions
                 bool initiateComputation = GetParameter<bool>(DA, "Initiate");
                 Dictionary<string, double> outputs = new Dictionary<string, double>();
-                if (initiateComputation && iterationStats.iterationCount < iterationStats.iterationLimit)
+                if (initiateComputation && iterationStats.iterationCount <= iterationStats.iterationLimit)
                 {
                     GenerateSolution(DA, solutionSet, intervals);
                 }

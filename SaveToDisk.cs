@@ -174,15 +174,15 @@ namespace ghplugin
                 throw new Exception(errorMessage);
         }
 
-        protected static void checkError(bool success)
-        {
-            checkError(success, "parameters missing.");
+        protected static void checkParameterError(bool success) {
+            if (!success)
+                throw new ParameterException();
         }
 
         protected static T GetParameter<T>(IGH_DataAccess DA, int position)
         {
             T data_item = default;
-            checkError(DA.GetData(position, ref data_item));
+            checkParameterError(DA.GetData(position, ref data_item));
             return data_item;
         }
 
@@ -193,146 +193,150 @@ namespace ghplugin
         /// to store data in output parameters.</param>
         protected override void SolveInstance(IGH_DataAccess DA)
         {
-            string aggDataJson = GetParameter<string>(DA, 0);
-            string directoryString = GetParameter<string>(DA, 1);
-            bool enabled = GetParameter<bool>(DA, 2);
+            try {
+                string aggDataJson = GetParameter<string>(DA, 0);
+                string directoryString = GetParameter<string>(DA, 1);
+                bool enabled = GetParameter<bool>(DA, 2);
 
-            var directoryObject = JsonConvert.DeserializeObject<DirectoryParameters>(directoryString);
+                var directoryObject = JsonConvert.DeserializeObject<DirectoryParameters>(directoryString);
 
-            var projectName = System.Security.SecurityElement.Escape(directoryObject.projectName);
+                var projectName = System.Security.SecurityElement.Escape(directoryObject.projectName);
 
-            if (!enabled) {
-                return;
-            }
-
-            // check if the directory is valid
-            if (!Directory.Exists(directoryObject.directory))
-            {
-                throw new Exception("Directory does not exist.");
-            }
-
-            MorphoAggregatedData solution = JsonConvert.DeserializeObject<MorphoAggregatedData>(aggDataJson);
-            if (solution.inputs == null || solution.outputs == null)
-            {
-                // if aggregated data is null, stop executing the component
-                return;
-            }
-
-            Dictionary<string, double> parameters = new Dictionary<string, double>();
-            foreach (KeyValuePair<string, double> pair in solution.inputs)
-            {
-                parameters.Add(pair.Key, pair.Value);
-            }
-            foreach (KeyValuePair<string, double> pair in solution.outputs)
-            {
-                parameters.Add(pair.Key, pair.Value);
-            }
-            SerializableSolution serializableSolution = new SerializableSolution
-            {
-                parameters = parameters
-
-            };
-
-            if (solution.inputs == null || solution.outputs == null)
-            {
-                // if anything turns null, return without failing
-                return;
-            }
-
-            // BEGIN Writing to Local DB
-
-            var connBuilder = new SQLiteConnectionStringBuilder();
-            connBuilder.DataSource = $"{directoryObject.directory}/solutions.db";
-            connBuilder.Version = 3;
-            connBuilder.JournalMode = SQLiteJournalModeEnum.Wal;
-            connBuilder.LegacyFormat = false;
-            connBuilder.Pooling = true;
-
-            using (var DBConnection = new SQLiteConnection(connBuilder.ToString()))
-            {
-                DBConnection.Open();
-
-                string createTableLayoutQuery = "CREATE TABLE IF NOT EXISTS project_layout (project_name text primary key, parameters jsonb)";
-                string insertTableLayoutQuery = $"INSERT INTO project_layout VALUES ({projectName}, $layout)";
-                string getTableLayoutQuery = "SELECT parameters FROM project_layout WHERE project_name=$projectName";
-
-                string createProjectTableQuery = $"CREATE TABLE IF NOT EXISTS {projectName} (data_id integer primary key autoincrement, data jsonb not null)";
-                string insertSolutionQuery = $"INSERT INTO {projectName} (data) VALUES ($data)";
-                string getSolutionIdQuery = $"SELECT data_id FROM {projectName} WHERE data = $data";
-
-                string createAssetTableQuery = $"CREATE TABLE IF NOT EXISTS {projectName}_assets (asset_id integer primary key autoincrement, data blob not null, tag text not null, data_id integer, foreign key(data_id) references {projectName}(data_id))";
-                string insertAssetQuery = $"INSERT INTO {projectName}_assets(data, tag, data_id) values ($data, $tag, $data_id)";
-
-                var status = executeCreateQuery(createTableLayoutQuery, DBConnection);
-                // ERROR CHECKING REQUIRED
-
-                status = executeCreateQuery(createProjectTableQuery, DBConnection);
-                // ERROR CHECKING REQUIRED
-
-                status = executeCreateQuery(createAssetTableQuery, DBConnection);
-                // ERROR CHECKING REQUIRED
-
-                // abort if any of the above fail
-
-                var command = DBConnection.CreateCommand();
-                command.CommandText = getTableLayoutQuery;
-                command.Parameters.AddWithValue("$projectName", projectName);
-                var reader = command.ExecuteReader();
-
-                // check if table layout differs for this insert. If it does, error out.
-                if (!InputParameterCheck(solution, projectName, DBConnection))
-                {
-                    throw new Exception("Input Parameters differ.");
+                if (!enabled) {
+                    return;
                 }
 
-                bool hasErrored = false;
-                using (var transaction = DBConnection.BeginTransaction(IsolationLevel.Serializable))
+                // check if the directory is valid
+                if (!Directory.Exists(directoryObject.directory))
                 {
-                    // insert solution first
-                    command = new SQLiteCommand(insertSolutionQuery, DBConnection, transaction);
-                    command.Parameters.AddWithValue("$projectName", projectName);
-                    command.Parameters.AddWithValue("$data", JsonConvert.SerializeObject(serializableSolution));
-                    status = command.ExecuteNonQuery();
-                    // ERROR CHECKING REQUIRED; write results to hasErrored
+                    throw new Exception("Directory does not exist.");
+                }
 
-                    // get solution id
-                    // for correctness' sake, get the id of the same object that was inserted
-                    command = new SQLiteCommand(getSolutionIdQuery, DBConnection, transaction);
-                    command.Parameters.AddWithValue("$projectName", projectName);
-                    command.Parameters.AddWithValue("$data", JsonConvert.SerializeObject(serializableSolution));
-                    Int64 solutionId = (Int64)command.ExecuteScalar();
-                    // ERROR CHECKING REQUIRED; write results to hasErrored
+                MorphoAggregatedData solution = JsonConvert.DeserializeObject<MorphoAggregatedData>(aggDataJson);
+                if (solution.inputs == null || solution.outputs == null)
+                {
+                    // if aggregated data is null, stop executing the component
+                    return;
+                }
 
-                    // insert assets for the particular solution
-                    foreach (KeyValuePair<string, string> asset in solution.files)
+                Dictionary<string, double> parameters = new Dictionary<string, double>();
+                foreach (KeyValuePair<string, double> pair in solution.inputs)
+                {
+                    parameters.Add(pair.Key, pair.Value);
+                }
+                foreach (KeyValuePair<string, double> pair in solution.outputs)
+                {
+                    parameters.Add(pair.Key, pair.Value);
+                }
+                SerializableSolution serializableSolution = new SerializableSolution
+                {
+                    parameters = parameters
+
+                };
+
+                if (solution.inputs == null || solution.outputs == null)
+                {
+                    // if anything turns null, return without failing
+                    return;
+                }
+
+                // BEGIN Writing to Local DB
+
+                var connBuilder = new SQLiteConnectionStringBuilder();
+                connBuilder.DataSource = $"{directoryObject.directory}/solutions.db";
+                connBuilder.Version = 3;
+                connBuilder.JournalMode = SQLiteJournalModeEnum.Wal;
+                connBuilder.LegacyFormat = false;
+                connBuilder.Pooling = true;
+
+                using (var DBConnection = new SQLiteConnection(connBuilder.ToString()))
+                {
+                    DBConnection.Open();
+
+                    string createTableLayoutQuery = "CREATE TABLE IF NOT EXISTS project_layout (project_name text primary key, parameters jsonb)";
+                    string insertTableLayoutQuery = $"INSERT INTO project_layout VALUES ({projectName}, $layout)";
+                    string getTableLayoutQuery = "SELECT parameters FROM project_layout WHERE project_name=$projectName";
+
+                    string createProjectTableQuery = $"CREATE TABLE IF NOT EXISTS {projectName} (data_id integer primary key autoincrement, data jsonb not null)";
+                    string insertSolutionQuery = $"INSERT INTO {projectName} (data) VALUES ($data)";
+                    string getSolutionIdQuery = $"SELECT data_id FROM {projectName} WHERE data = $data";
+
+                    string createAssetTableQuery = $"CREATE TABLE IF NOT EXISTS {projectName}_assets (asset_id integer primary key autoincrement, data blob not null, tag text not null, data_id integer, foreign key(data_id) references {projectName}(data_id))";
+                    string insertAssetQuery = $"INSERT INTO {projectName}_assets(data, tag, data_id) values ($data, $tag, $data_id)";
+
+                    var status = executeCreateQuery(createTableLayoutQuery, DBConnection);
+                    // ERROR CHECKING REQUIRED
+
+                    status = executeCreateQuery(createProjectTableQuery, DBConnection);
+                    // ERROR CHECKING REQUIRED
+
+                    status = executeCreateQuery(createAssetTableQuery, DBConnection);
+                    // ERROR CHECKING REQUIRED
+
+                    // abort if any of the above fail
+
+                    var command = DBConnection.CreateCommand();
+                    command.CommandText = getTableLayoutQuery;
+                    command.Parameters.AddWithValue("$projectName", projectName);
+                    var reader = command.ExecuteReader();
+
+                    // check if table layout differs for this insert. If it does, error out.
+                    if (!InputParameterCheck(solution, projectName, DBConnection))
                     {
+                        throw new Exception("Input Parameters differ.");
+                    }
 
-                        // TODO terminate this if solution insertion fails
-                        byte[] fileContents = File.ReadAllBytes(asset.Key);
-
-                        command = new SQLiteCommand(insertAssetQuery, DBConnection, transaction);
+                    bool hasErrored = false;
+                    using (var transaction = DBConnection.BeginTransaction(IsolationLevel.Serializable))
+                    {
+                        // insert solution first
+                        command = new SQLiteCommand(insertSolutionQuery, DBConnection, transaction);
                         command.Parameters.AddWithValue("$projectName", projectName);
-                        command.Parameters.AddWithValue("$data", fileContents);
-                        command.Parameters.AddWithValue("$tag", asset.Key);
-                        command.Parameters.AddWithValue("$data_id", solutionId);
+                        command.Parameters.AddWithValue("$data", JsonConvert.SerializeObject(serializableSolution));
                         status = command.ExecuteNonQuery();
                         // ERROR CHECKING REQUIRED; write results to hasErrored
+
+                        // get solution id
+                        // for correctness' sake, get the id of the same object that was inserted
+                        command = new SQLiteCommand(getSolutionIdQuery, DBConnection, transaction);
+                        command.Parameters.AddWithValue("$projectName", projectName);
+                        command.Parameters.AddWithValue("$data", JsonConvert.SerializeObject(serializableSolution));
+                        Int64 solutionId = (Int64)command.ExecuteScalar();
+                        // ERROR CHECKING REQUIRED; write results to hasErrored
+
+                        // insert assets for the particular solution
+                        foreach (KeyValuePair<string, string> asset in solution.files)
+                        {
+
+                            // TODO terminate this if solution insertion fails
+                            byte[] fileContents = File.ReadAllBytes(asset.Key);
+
+                            command = new SQLiteCommand(insertAssetQuery, DBConnection, transaction);
+                            command.Parameters.AddWithValue("$projectName", projectName);
+                            command.Parameters.AddWithValue("$data", fileContents);
+                            command.Parameters.AddWithValue("$tag", asset.Key);
+                            command.Parameters.AddWithValue("$data_id", solutionId);
+                            status = command.ExecuteNonQuery();
+                            // ERROR CHECKING REQUIRED; write results to hasErrored
+                        }
+
+                        if (hasErrored)
+                        {
+                            transaction.Rollback();
+                        }
+                        else
+                        {
+                            transaction.Commit();
+                        }
                     }
 
-                    if (hasErrored)
-                    {
-                        transaction.Rollback();
-                    }
-                    else
-                    {
-                        transaction.Commit();
-                    }
+                    // END Writing to Local DB
+
+                    // TODO abort csv insertion in case SQL insertion fails
+                    writeToCSV(directoryObject.directory, projectName, solution);
                 }
-
-                // END Writing to Local DB
-
-                // TODO abort csv insertion in case SQL insertion fails
-                writeToCSV(directoryObject.directory, projectName, solution);
+            } catch (ParameterException) {
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Missing Parameters");
             }
         }
 
