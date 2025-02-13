@@ -11,6 +11,9 @@ namespace ghplugin
         public string projectName;
     }
 
+    /// <summary>
+    /// The Directory component collects the location and project name under which the data should be saved.
+    /// </summary>
     public class DirectoryComponent: GH_Component
     {
 

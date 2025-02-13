@@ -6,7 +6,6 @@ using System.Windows.Forms;
 
 namespace ghplugin
 {
-    
     public class Filter : GH_Component
     {
         public static string Join(List<string> strings, string delimiter) {
@@ -91,7 +90,7 @@ namespace ghplugin
 
         protected override void RegisterOutputParams(GH_OutputParamManager pManager)
         {
-            pManager.AddTextParameter("filter", "filter", "Definition of a filter", GH_ParamAccess.item);
+            pManager.AddTextParameter("filter", "Filter", "Definition of a filter", GH_ParamAccess.item);
         }
 
         /// <summary>
@@ -103,8 +102,9 @@ namespace ghplugin
         {
             DA.GetData(0, ref this.parameterName);
             DA.GetData(1, ref this.filterValue);
-            var expression = $"json_extract(data, '$.parameters.{this.parameterName}') {this.filterOperator} {this.filterValue}";
-            DA.SetData(0, expression);
+            var input_expression = $"json_extract(parameters, '$.{this.parameterName}') {this.filterOperator} {this.filterValue}";
+            var output_expression = $"json_extract(output_parameters, '$.{this.parameterName}') {this.filterOperator} {this.filterValue}";
+            DA.SetData(0, $"({input_expression} OR {output_expression})");
         }
 
         /// <summary>
@@ -157,7 +157,7 @@ namespace ghplugin
 
         protected override void RegisterOutputParams(GH_OutputParamManager pManager)
         {
-            pManager.AddTextParameter("filter", "filter", "Definition of a filter", GH_ParamAccess.item);
+            pManager.AddTextParameter("filter", "Filter", "Definition of a filter", GH_ParamAccess.item);
         }
 
         /// <summary>
@@ -167,11 +167,10 @@ namespace ghplugin
         /// to store data in output parameters.</param>
         protected override void SolveInstance(IGH_DataAccess DA)
         {
-         
-           List<string> fitnessFilters = new List<string>();
-           DA.GetDataList(0, fitnessFilters);
-           var expression = Filter.Join(fitnessFilters, " AND ");
-           DA.SetData(0, expression);
+            List<string> fitnessFilters = new List<string>();
+            DA.GetDataList(0, fitnessFilters);
+            var expression = Filter.Join(fitnessFilters, " AND ");
+            DA.SetData(0, expression);
         }
 
         /// <summary>
@@ -224,7 +223,7 @@ namespace ghplugin
 
         protected override void RegisterOutputParams(GH_OutputParamManager pManager)
         {
-            pManager.AddTextParameter("filter", "filter", "Definition of a filter", GH_ParamAccess.item);
+            pManager.AddTextParameter("filter", "Filter", "Definition of a filter", GH_ParamAccess.item);
         }
 
         /// <summary>
@@ -234,10 +233,10 @@ namespace ghplugin
         /// to store data in output parameters.</param>
         protected override void SolveInstance(IGH_DataAccess DA)
         {
-           List<string> fitnessFilters = new List<string>();
-           DA.GetDataList(0, fitnessFilters);
-           var expression = Filter.Join(fitnessFilters.ToArray(), " OR ");
-           DA.SetData(0, expression);
+            List<string> fitnessFilters = new List<string>();
+            DA.GetDataList(0, fitnessFilters);
+            var expression = Filter.Join(fitnessFilters.ToArray(), " OR ");
+            DA.SetData(0, expression);
         }
 
         /// <summary>

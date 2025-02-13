@@ -32,17 +32,12 @@ namespace ghplugin
     /// new tabs/panels will automatically be created.
     /// </summary>
     public Parameters()
-      : base("Parameters", "params",
+      : base("Parameters", "Parameters",
         "Parameters for the Genetic Search",
         "Morpho", "Genetic Search")
     {
     }
 
-    private void checkError(bool success)
-    {
-      if (!success)
-        throw new Exception("Parameters Missing.");
-    }
 
     /// <summary>
     /// Registers all the input parameters for this component.
@@ -53,10 +48,10 @@ namespace ghplugin
       // You can often supply default values when creating parameters.
       // All parameters must have the correct access type. If you want 
       // to import lists or trees of values, modify the ParamAccess flag.
-      pManager.AddNumberParameter("Cross-Over Probability", "p(xover)", "Cross-Over Probability used by the algorithm", GH_ParamAccess.item);
-      pManager.AddNumberParameter("Mutation Probability", "p(mut)", "Mutation Probability used by the algorithm", GH_ParamAccess.item);
-      pManager.AddNumberParameter("Cross-Over Distribution Index", "xover_dist", "", GH_ParamAccess.item);
-      pManager.AddNumberParameter("Mutation Distribution Index", "mut_dist", "", GH_ParamAccess.item);
+      pManager.AddNumberParameter("Cross-Over Probability", "Cross-Over Probability", "Cross-Over Probability used by the algorithm", GH_ParamAccess.item);
+      pManager.AddNumberParameter("Mutation Probability", "Mutation Probability", "Mutation Probability used by the algorithm", GH_ParamAccess.item);
+      pManager.AddNumberParameter("Cross-Over Distribution Index", "Cross-Over Distribution Index", "Cross-Over Distribution Index used by the algorithm", GH_ParamAccess.item);
+      pManager.AddNumberParameter("Mutation Distribution Index", "Mutation Distribution Index", "Mutation Distribution Index used by the algorithm", GH_ParamAccess.item);
     }
 
     /// <summary>
@@ -66,11 +61,23 @@ namespace ghplugin
     {
       // Use the pManager object to register your output parameters.
       // Output parameters do not have default values, but they too must have the correct access type.
-      pManager.AddTextParameter("Result", "r", "Set of Parameters, Encoded", GH_ParamAccess.item);
+      pManager.AddTextParameter("Parameters", "Parameters", "Set of Parameters, Encoded", GH_ParamAccess.item);
 
       // Sometimes you want to hide a specific parameter from the Rhino preview.
       // You can use the HideParameter() method as a quick way:
-      //pManager.HideParameter(0);
+      // pManager.HideParameter(0);
+    }
+
+    private static void checkError(bool success)
+    {
+      if (!success)
+        throw new ParameterException();
+    }
+
+    private static T GetParameter<T>(IGH_DataAccess DA, string fieldName) {
+      T data_item = default;
+      checkError(DA.GetData(fieldName, ref data_item));
+      return data_item;
     }
 
     /// <summary>
@@ -80,15 +87,18 @@ namespace ghplugin
     /// to store data in output parameters.</param>
     protected override void SolveInstance(IGH_DataAccess DA)
     {
-      AlgorithmParameterSet p = new AlgorithmParameterSet();
+      try {
+        AlgorithmParameterSet p = new AlgorithmParameterSet();
 
-      checkError(DA.GetData("Cross-Over Probability", ref p.probability_xover));
-      checkError(DA.GetData("Mutation Probability", ref p.probability_mutation));
-      checkError(DA.GetData("Cross-Over Distribution Index", ref p.dist_index_xover));
-      checkError(DA.GetData("Mutation Distribution Index", ref p.dist_index_mutation));
-
-      string json = JsonConvert.SerializeObject(p);
-      DA.SetData(0, json);
+        p.probability_xover = GetParameter<double>(DA, "Cross-Over Probability");
+        p.probability_mutation = GetParameter<double>(DA, "Mutation Probability");
+        p.dist_index_xover = GetParameter<double>(DA, "Cross-Over Distribution Index");
+        p.dist_index_mutation = GetParameter<double>(DA, "Mutation Distribution Index");
+        string json = JsonConvert.SerializeObject(p);
+        DA.SetData(0, json);
+      } catch (ParameterException) {
+        AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Parameters Missing");
+      }
     }
 
     /// <summary>

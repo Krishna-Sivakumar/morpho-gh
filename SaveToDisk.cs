@@ -6,6 +6,7 @@ using System.Linq;
 using System.Data.SQLite;
 using Grasshopper.Kernel;
 using Newtonsoft.Json;
+using Microsoft.VisualBasic;
 
 namespace ghplugin
 {
@@ -15,7 +16,8 @@ namespace ghplugin
 
         public struct SerializableSolution
         {
-            public Dictionary<string, double> parameters;
+            public Dictionary<string, double> input_parameters;
+            public Dictionary<string, double> output_parameters;
         }
 
         /// <summary>
@@ -61,111 +63,26 @@ namespace ghplugin
             return command.ExecuteNonQuery();
         }
 
-        private bool InputParameterCheck(MorphoAggregatedData solution, string projectName, SQLiteConnection DBConnection)
-        {
-            string getTableLayoutQuery = "SELECT parameters FROM project_layout WHERE project_name=$projectName";
-            string insertTableLayoutQuery = "INSERT INTO project_layout VALUES ($projectName, $layout)";
-            var inputParameters = new HashSet<string>();
+        private enum ParameterCheckResult {
+            NoProject,
+            Valid,
+            Invalid,
+        };
 
-            var getCommand = DBConnection.CreateCommand();
-            getCommand.CommandText = getTableLayoutQuery;
-            getCommand.Parameters.AddWithValue("$projectName", projectName);
-            using (var layoutReader = getCommand.ExecuteReader())
-            {
-                inputParameters = new HashSet<string>();
-                if (layoutReader.Read())
-                {
-                    var serializedInputParameters = layoutReader.GetString(0);
-                    inputParameters = JsonConvert.DeserializeObject<HashSet<string>>(serializedInputParameters);
-                    foreach (KeyValuePair<string, double> pair in solution.inputs)
-                    {
-                        if (!inputParameters.Contains(pair.Key))
-                        {
-                            return false;
-                        }
+        private ParameterCheckResult InputParameterCheck(MorphoAggregatedData solution, DirectoryParameters directory) {
+            var db = new DBOps(directory);
+            db.SetupDB();
+            try {
+                var inputParams = db.GetInputParameters(directory.projectName);
+                foreach (var inputParameterPair in solution.inputs) {
+                    if (!inputParams.ContainsKey(inputParameterPair.Key)) {
+                        return ParameterCheckResult.Invalid;
                     }
-                    return true;
                 }
+                return ParameterCheckResult.Valid;
+            } catch (DBOps.ProjectNotFoundException) {
+                return ParameterCheckResult.NoProject;
             }
-
-            // if the input parameters aren't written to disk already, write them now
-            foreach (KeyValuePair<string, double> pair in solution.inputs)
-            {
-                inputParameters.Add(pair.Key);
-            }
-            var insertCommand = DBConnection.CreateCommand();
-            insertCommand.CommandText = insertTableLayoutQuery;
-            insertCommand.Parameters.AddWithValue("$projectName", projectName);
-            insertCommand.Parameters.AddWithValue("$layout", JsonConvert.SerializeObject(inputParameters));
-            insertCommand.ExecuteNonQuery();
-            // TODO error handling
-            return true;
-        }
-
-        private string constructCSVHeader(MorphoAggregatedData aggregatedData)
-        {
-            List<string> header = new List<string>();
-
-            foreach (KeyValuePair<string, double> inputPair in aggregatedData.inputs)
-            {
-                header.Add(inputPair.Key);
-            }
-            foreach (KeyValuePair<string, double> outputPair in aggregatedData.outputs)
-            {
-                header.Add(outputPair.Key);
-            }
-            foreach (KeyValuePair<string, string> filePair in aggregatedData.files)
-            {
-                header.Add(filePair.Key);
-            }
-            // TODO include image file headers
-
-            return string.Join(",", header);
-        }
-
-        private void writeToCSV(string directory, string projectName, MorphoAggregatedData solution)
-        {
-            FileInfo info = new FileInfo($"{directory}/{projectName}.csv");
-            var constructedHeader = constructCSVHeader(solution); // order: input parameter names, output parameter names, file tag names, image tag names
-            if (!info.Exists)
-            {
-                StreamWriter csvHeaderWriter = new StreamWriter($"{directory}/{projectName}.csv");
-
-                csvHeaderWriter.WriteLine(constructedHeader);
-                csvHeaderWriter.Flush();
-
-                csvHeaderWriter.Close();
-            }
-
-            var existingHeader = File.ReadLines($"{directory}/{projectName}.csv").First();
-            if (!constructedHeader.Equals(existingHeader))
-            {
-                StreamWriter csvHeaderWriter = new StreamWriter($"{directory}/{projectName}.csv");
-                csvHeaderWriter.WriteLine(constructedHeader);
-                csvHeaderWriter.Flush();
-                csvHeaderWriter.Close();
-            }
-
-            StreamWriter csvWriter = new StreamWriter($"{directory}/{projectName}.csv", append: true);
-            List<string> csvData = new List<string>();
-
-            foreach (KeyValuePair<string, double> inputPair in solution.inputs)
-            {
-                csvData.Add(inputPair.Value.ToString());
-            }
-            foreach (KeyValuePair<string, double> outputPair in solution.outputs)
-            {
-                csvData.Add(outputPair.Value.ToString());
-            }
-            foreach (KeyValuePair<string, string> filePair in solution.files)
-            {
-                csvData.Add(filePair.Value);
-            }
-            // TODO write image file names
-
-            csvWriter.WriteLine(string.Join(",", csvData));
-            csvWriter.Flush();
-            csvWriter.Close();
         }
 
         protected static void checkError(bool success, string errorMessage)
@@ -215,128 +132,38 @@ namespace ghplugin
                 MorphoAggregatedData solution = JsonConvert.DeserializeObject<MorphoAggregatedData>(aggDataJson);
                 if (solution.inputs == null || solution.outputs == null)
                 {
-                    // if aggregated data is null, stop executing the component
-                    return;
+                    throw new ParameterException();
                 }
 
-                Dictionary<string, double> parameters = new Dictionary<string, double>();
-                foreach (KeyValuePair<string, double> pair in solution.inputs)
-                {
-                    parameters.Add(pair.Key, pair.Value);
-                }
-                foreach (KeyValuePair<string, double> pair in solution.outputs)
-                {
-                    parameters.Add(pair.Key, pair.Value);
-                }
-                SerializableSolution serializableSolution = new SerializableSolution
-                {
-                    parameters = parameters
-
-                };
-
+                SerializableSolution serializableSolution = new SerializableSolution{ input_parameters = solution.inputs, output_parameters = solution.outputs };
                 if (solution.inputs == null || solution.outputs == null)
                 {
                     // if anything turns null, return without failing
                     return;
                 }
 
-                // BEGIN Writing to Local DB
-
-                var connBuilder = new SQLiteConnectionStringBuilder();
-                connBuilder.DataSource = $"{directoryObject.directory}/solutions.db";
-                connBuilder.Version = 3;
-                connBuilder.JournalMode = SQLiteJournalModeEnum.Wal;
-                connBuilder.LegacyFormat = false;
-                connBuilder.Pooling = true;
-
-                using (var DBConnection = new SQLiteConnection(connBuilder.ToString()))
-                {
-                    DBConnection.Open();
-
-                    string createTableLayoutQuery = "CREATE TABLE IF NOT EXISTS project_layout (project_name text primary key, parameters jsonb)";
-                    string insertTableLayoutQuery = $"INSERT INTO project_layout VALUES ({projectName}, $layout)";
-                    string getTableLayoutQuery = "SELECT parameters FROM project_layout WHERE project_name=$projectName";
-
-                    string createProjectTableQuery = $"CREATE TABLE IF NOT EXISTS {projectName} (data_id integer primary key autoincrement, data jsonb not null)";
-                    string insertSolutionQuery = $"INSERT INTO {projectName} (data) VALUES ($data)";
-                    string getSolutionIdQuery = $"SELECT data_id FROM {projectName} WHERE data = $data";
-
-                    string createAssetTableQuery = $"CREATE TABLE IF NOT EXISTS {projectName}_assets (asset_id integer primary key autoincrement, data blob not null, tag text not null, data_id integer, foreign key(data_id) references {projectName}(data_id))";
-                    string insertAssetQuery = $"INSERT INTO {projectName}_assets(data, tag, data_id) values ($data, $tag, $data_id)";
-
-                    var status = executeCreateQuery(createTableLayoutQuery, DBConnection);
-                    // ERROR CHECKING REQUIRED
-
-                    status = executeCreateQuery(createProjectTableQuery, DBConnection);
-                    // ERROR CHECKING REQUIRED
-
-                    status = executeCreateQuery(createAssetTableQuery, DBConnection);
-                    // ERROR CHECKING REQUIRED
-
-                    // abort if any of the above fail
-
-                    var command = DBConnection.CreateCommand();
-                    command.CommandText = getTableLayoutQuery;
-                    command.Parameters.AddWithValue("$projectName", projectName);
-                    var reader = command.ExecuteReader();
-
-                    // check if table layout differs for this insert. If it does, error out.
-                    if (!InputParameterCheck(solution, projectName, DBConnection))
-                    {
-                        throw new Exception("Input Parameters differ.");
-                    }
-
-                    bool hasErrored = false;
-                    using (var transaction = DBConnection.BeginTransaction(IsolationLevel.Serializable))
-                    {
-                        // insert solution first
-                        command = new SQLiteCommand(insertSolutionQuery, DBConnection, transaction);
-                        command.Parameters.AddWithValue("$projectName", projectName);
-                        command.Parameters.AddWithValue("$data", JsonConvert.SerializeObject(serializableSolution));
-                        status = command.ExecuteNonQuery();
-                        // ERROR CHECKING REQUIRED; write results to hasErrored
-
-                        // get solution id
-                        // for correctness' sake, get the id of the same object that was inserted
-                        command = new SQLiteCommand(getSolutionIdQuery, DBConnection, transaction);
-                        command.Parameters.AddWithValue("$projectName", projectName);
-                        command.Parameters.AddWithValue("$data", JsonConvert.SerializeObject(serializableSolution));
-                        Int64 solutionId = (Int64)command.ExecuteScalar();
-                        // ERROR CHECKING REQUIRED; write results to hasErrored
-
-                        // insert assets for the particular solution
-                        foreach (KeyValuePair<string, string> asset in solution.files)
-                        {
-
-                            // TODO terminate this if solution insertion fails
-                            byte[] fileContents = File.ReadAllBytes(asset.Key);
-
-                            command = new SQLiteCommand(insertAssetQuery, DBConnection, transaction);
-                            command.Parameters.AddWithValue("$projectName", projectName);
-                            command.Parameters.AddWithValue("$data", fileContents);
-                            command.Parameters.AddWithValue("$tag", asset.Key);
-                            command.Parameters.AddWithValue("$data_id", solutionId);
-                            status = command.ExecuteNonQuery();
-                            // ERROR CHECKING REQUIRED; write results to hasErrored
-                        }
-
-                        if (hasErrored)
-                        {
-                            transaction.Rollback();
-                        }
-                        else
-                        {
-                            transaction.Commit();
-                        }
-                    }
-
-                    // END Writing to Local DB
-
-                    // TODO abort csv insertion in case SQL insertion fails
-                    writeToCSV(directoryObject.directory, projectName, solution);
+                DBOps db = new DBOps(directoryObject);
+                
+                // check if input parameters differ for this insert. If it does, error out.
+                var inputCheckResult = InputParameterCheck(solution, directoryObject);
+                if (inputCheckResult == ParameterCheckResult.Invalid) {
+                    throw new Exception("Input parameters do not match initial setup.");
+                } else if (inputCheckResult == ParameterCheckResult.NoProject) {
+                    db.InsertTableLayout(serializableSolution, solution.files, projectName);
                 }
+
+                // insert solution at this point, along with asset files / images
+                // TODO implement inserting file paths
+                db.InsertSolution(serializableSolution, solution.files, directoryObject.projectName);
+
+                // TODO implement writeToCSV() for the new setup
+                // writeToCSV(directoryObject.directory, projectName, solution);
             } catch (ParameterException) {
                 AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Missing Parameters");
+            } catch (DBOps.InsertionError e) {
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Error, e.Message);
+            } catch (DBOps.ProjectNotFoundException e) {
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Error, e.Message);
             }
         }
 
