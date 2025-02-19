@@ -7,7 +7,8 @@
         Rhino 8 Windows: net48, net7.0, net7.0-windows, net7.0-windows10.0.22000.0, etc
         Rhino 8 Mac: net7.0, net7.0-macos, net7.0-macos12.0, etc
     -->
-    <TargetFrameworks>net7.0-windows;net7.0;net48;net45</TargetFrameworks>
+    <!-- <TargetFrameworks>net7.0-windows;net7.0;net48;net45</TargetFrameworks> -->
+    <TargetFrameworks>net7.0-windows;net7.0;net48</TargetFrameworks>
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <TargetExt>.gha</TargetExt>
     <NoWarn>NU1701;NETSDK1086</NoWarn>
@@ -19,7 +20,7 @@
     <Version>0.1</Version>
     <Title>Morpho</Title>
     <Company>Krishna Sivakumar, Anahita Khodadadi</Company>
-    <Description>Description of ghplugin</Description>
+    <Description>A Toolkit to Generate, Filter and View solutions generated via Genetic Algorithms.</Description>
   </PropertyGroup>
   
   <ItemGroup>
@@ -29,6 +30,7 @@
     <PackageReference Include="Grasshopper" Version="6.35.21222.17001" Condition="$(TargetFramework) == 'net45'" ExcludeAssets="runtime" />
     <PackageReference Include="Grasshopper" Version="7.0.20314.3001" Condition="$(TargetFramework) == 'net48'" ExcludeAssets="runtime" />
     <PackageReference Include="Grasshopper" Version="8.0.23304.9001" Condition="!$(TargetFramework.StartsWith('net4'))" ExcludeAssets="runtime" />
+    <PackageReference Include="System.Drawing.Common" Version="9.0.2" ExcludeAssets="runtime" />
   </ItemGroup>
   
   <!-- For Windows only builds -->
@@ -44,7 +46,6 @@
     <!-- Rhino 8.10 and earlier -->
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net48" Version="1.0.3" ExcludeAssets="all" GeneratePathProperty="true" />
     <Reference Include="$(PkgMicrosoft_NETFramework_ReferenceAssemblies_net48)\build\.NETFramework\v4.8\System.Windows.Forms.dll" Private="False" />
-    <PackageReference Include="System.Drawing.Common" Version="8.0.10" ExcludeAssets="runtime" />
   </ItemGroup>
 
 </Project>
