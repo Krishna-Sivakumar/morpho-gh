@@ -3,7 +3,7 @@ using Newtonsoft.Json;
 using System;
 using System.IO;
 
-namespace ghplugin
+namespace morpho
 {
 
     public struct DirectoryParameters {

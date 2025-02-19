@@ -4,7 +4,7 @@ using Newtonsoft.Json;
 
 using Grasshopper.Kernel;
 
-namespace ghplugin
+namespace morpho
 {
     public struct MorphoAggregatedData
     {

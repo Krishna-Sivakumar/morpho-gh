@@ -1,8 +1,8 @@
-﻿using System;
+using System;
 using System.Drawing;
 using Grasshopper.Kernel;
 
-namespace ghplugin
+namespace morpho
 {
   public class ghpluginInfo : GH_AssemblyInfo
   {

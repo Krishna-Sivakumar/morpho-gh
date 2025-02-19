@@ -5,7 +5,7 @@ using System;
 using System.Data;
 using System.IO;
 
-namespace ghplugin {
+namespace morpho {
 
     /// <summary>
     /// Represents a metadata field within a project.

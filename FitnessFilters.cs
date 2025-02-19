@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Text;
 using System.Windows.Forms;
 
-namespace ghplugin
+namespace morpho
 {
     public class Filter : GH_Component
     {

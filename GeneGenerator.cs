@@ -7,7 +7,7 @@ using Grasshopper.Kernel;
 using System.Timers;
 using System.Linq;
 
-namespace ghplugin
+namespace morpho
 {
     using NumberSlider = Grasshopper.Kernel.Special.GH_NumberSlider;
 

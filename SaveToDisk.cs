@@ -8,7 +8,7 @@ using Grasshopper.Kernel;
 using Newtonsoft.Json;
 using Microsoft.VisualBasic;
 
-namespace ghplugin
+namespace morpho
 {
 
     public class SaveToDisk : GH_Component
