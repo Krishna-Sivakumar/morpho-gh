@@ -1,12 +1,9 @@
 using System;
 using System.Collections.Generic;
-using System.Data;
+using System.Drawing.Imaging;
 using System.IO;
-using System.Linq;
-using System.Data.SQLite;
 using Grasshopper.Kernel;
 using Newtonsoft.Json;
-using Microsoft.VisualBasic;
 
 namespace morpho
 {
@@ -37,30 +34,19 @@ namespace morpho
         /// <summary>
         /// Registers all the input parameters for this component.
         /// </summary>
-        protected override void RegisterInputParams(GH_Component.GH_InputParamManager pManager)
+        protected override void RegisterInputParams(GH_InputParamManager pManager)
         {
             // Use the pManager object to register your input parameters.
             // You can often supply default values when creating parameters.
             // All parameters must have the correct access type. If you want 
             // to import lists or trees of values, modify the ParamAccess flag.
-            pManager.AddTextParameter("Aggregated Data", "Aggregated Data", "Aggregated data to be saved.", GH_ParamAccess.item);
+            pManager.AddGenericParameter("Aggregated Data", "Aggregated Data", "Aggregated data to be saved.", GH_ParamAccess.item);
             pManager.AddTextParameter("Directory", "Directory", "Directory to save the data under.", GH_ParamAccess.item);
             pManager.AddBooleanParameter("Enabled", "Enabled", "Enables the Component", GH_ParamAccess.item);
         }
 
         protected override void RegisterOutputParams(GH_OutputParamManager pManager)
         {
-        }
-
-        /// <summary>
-        /// DBConnection must be open while using this function. Expect errors otherwise.
-        /// </summary>
-        /// <param name="query"></param>
-        private int executeCreateQuery(string query, SQLiteConnection DBConnection)
-        {
-            var command = DBConnection.CreateCommand();
-            command.CommandText = query;
-            return command.ExecuteNonQuery();
         }
 
         private enum ParameterCheckResult {
@@ -103,6 +89,21 @@ namespace morpho
             return data_item;
         }
 
+        private static string SaveImage(NamedBitmap bitmapPair, DirectoryParameters directoryParameters, long solutionId) {
+            if (bitmapPair.bitmap == null) {
+                throw new Exception("Viewport not captured.");
+            }
+
+            if (!Directory.Exists(Path.Combine(directoryParameters.directory, bitmapPair.name))) {
+                var di = Directory.CreateDirectory(Path.Combine(directoryParameters.directory, bitmapPair.name));
+            }
+
+            var filePath = Path.Combine(directoryParameters.directory, bitmapPair.name, solutionId.ToString());
+            filePath = Path.ChangeExtension(filePath, ".png");
+            bitmapPair.bitmap.Save(filePath, ImageFormat.Png);
+            return filePath;
+        }
+
         /// <summary>
         /// This is the method that actually does the work.
         /// </summary>
@@ -111,7 +112,7 @@ namespace morpho
         protected override void SolveInstance(IGH_DataAccess DA)
         {
             try {
-                string aggDataJson = GetParameter<string>(DA, 0);
+                MorphoAggregatedData solution = GetParameter<MorphoAggregatedData>(DA, 0);
                 string directoryString = GetParameter<string>(DA, 1);
                 bool enabled = GetParameter<bool>(DA, 2);
 
@@ -129,7 +130,6 @@ namespace morpho
                     throw new Exception("Directory does not exist.");
                 }
 
-                MorphoAggregatedData solution = JsonConvert.DeserializeObject<MorphoAggregatedData>(aggDataJson);
                 if (solution.inputs == null || solution.outputs == null)
                 {
                     throw new ParameterException();
@@ -153,8 +153,19 @@ namespace morpho
                 }
 
                 // insert solution at this point, along with asset files / images
-                // TODO implement inserting file paths
-                db.InsertSolution(serializableSolution, solution.files, directoryObject.projectName);
+                foreach (var nb in solution.images) {
+                    if (nb.bitmap == null) {
+                        AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Viewport not set.");
+                        return;
+                    }
+                }
+                var solutionId = db.InsertSolution(serializableSolution, directoryObject.projectName);
+                foreach (var nb in solution.images) {
+                    var filepath = SaveImage(nb, directoryObject, solutionId);
+                    solution.files.Add(nb.name, filepath); // filepaths are addded to assets later
+                }
+
+                db.InsertSolutionAssets(solutionId, solution.files);
 
                 // TODO implement writeToCSV() for the new setup
                 // writeToCSV(directoryObject.directory, projectName, solution);

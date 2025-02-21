@@ -177,10 +177,10 @@ namespace morpho {
         /// </summary>
         /// <param name="solution">The serializable solution to be inserted</param>
         /// <returns>Number of rows inserted; should be 1.</returns>
-        public int InsertSolution(SaveToDisk.SerializableSolution solution, Dictionary<string, string> assets, string projectName) {
+        public long InsertSolution(SaveToDisk.SerializableSolution solution, string projectName) {
             // should insert assets as well, in a transaction
+            long insertedSolutionId = -1;
             string insertSolution = "INSERT INTO solution(parameters, output_parameters, project_name) VALUES ($parameters, $outputParameters, $projectName) RETURNING id;";
-            string insertAsset = "INSERT INTO asset(file, tag, solution_id) VALUES ($file, $tag, $solutionId)";
             using (var connection = new SQLiteConnection(connectionBuilder.ToString())) {
                 // begin a transaction here
                 connection.Open();
@@ -205,7 +205,33 @@ namespace morpho {
                             throw new InsertionError($"Could not insert solution into the database: {e.Message}");
                         }
 
-                        // then insert every asset
+                        transaction.Commit();
+                        insertedSolutionId = solutionId;
+                    } catch (InsertionError e) {
+                        transaction.Rollback();
+                        throw new InsertionError(e.Message);
+                    }
+                }
+                connection.Close();
+            }
+            return insertedSolutionId;
+        }
+
+        /// <summary>
+        /// Inserts a solution's assets into the local database.
+        /// </summary>
+        /// <param name="solution">The serializable solution to be inserted</param>
+        /// <returns>Number of rows inserted; should be 1.</returns>
+        public long InsertSolutionAssets(long solutionId, Dictionary<string, string> assets) {
+            // should insert assets as well, in a transaction
+            string insertAsset = "INSERT INTO asset(file, tag, solution_id) VALUES ($file, $tag, $solutionId)";
+            using (var connection = new SQLiteConnection(connectionBuilder.ToString())) {
+                // begin a transaction here
+                connection.Open();
+                using (var transaction = connection.BeginTransaction(IsolationLevel.Serializable)) {
+                    try {
+                        // insert every asset
+                        var command = connection.CreateCommand();
                         foreach (KeyValuePair<string, string> asset in assets) {
                             command = connection.CreateCommand();
                             command.CommandText = insertAsset;

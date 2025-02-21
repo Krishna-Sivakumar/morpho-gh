@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Newtonsoft.Json;
 
 using Grasshopper.Kernel;
+using System.Drawing;
 
 namespace morpho
 {
@@ -11,6 +12,7 @@ namespace morpho
         public Dictionary<string, double> inputs;
         public Dictionary<string, double> outputs;
         public Dictionary<string, string> files; // pairs of <file tag, file name>
+        public List<NamedBitmap> images;
     }
 
     public class DataAggregator : GH_Component
@@ -52,18 +54,18 @@ namespace morpho
 
         protected override void RegisterOutputParams(GH_OutputParamManager pManager)
         {
-            pManager.AddTextParameter("Aggregated Data", "Aggregated Data", "Aggregated output. Connect to the Morpho SaveToDisk component.", GH_ParamAccess.item);
+            pManager.AddGenericParameter("Aggregated Data", "Aggregated Data", "Aggregated output. Connect to the Morpho SaveToDisk component.", GH_ParamAccess.item);
         }
 
-        private static void checkError(bool success)
+        private static void checkError(bool success, string message)
         {
             if (!success)
-                throw new Exception("parameters missing.");
+                throw new ParameterException(message);
         }
 
         private static List<T> GetParameterList<T>(IGH_DataAccess DA, string fieldName) {
             List<T> data_items = new List<T>();
-            checkError(DA.GetDataList(fieldName, data_items));
+            checkError(DA.GetDataList(fieldName, data_items), $"Missing parameter {fieldName}");
             return data_items;
         }
 
@@ -95,27 +97,42 @@ namespace morpho
                     sourceCounter++;
                 }
 
-                // files is optional, so no error checking
-                result.files = new Dictionary<string, string>();
-                var filesList = new List<string>();
-                DA.GetDataList("Files", filesList);
-                sourceCounter = 0;
-                foreach (string filename in filesList)
-                {
-                    result.files.Add(
-                        Params.Input[3].Sources[sourceCounter].NickName,
-                        filename
-                    );
-                    sourceCounter++;
+                // we ingest images here
+                // we capture viewports to a bitmap 
+                // refer to https://discourse.mcneel.com/t/capture-viewport-as-image-in-cache/137791/2 for implementation
+                List<NamedBitmap> namedBitmaps;
+                try {
+                    namedBitmaps = GetParameterList<NamedBitmap>(DA, "Images");
+                    result.images = new List<NamedBitmap>();
+                    foreach (var nb in namedBitmaps) {
+                        result.images.Add(nb);
+                    }
+                } catch (ParameterException) {
+                    // do nothing if there are no Image Capture components provided.
+                } catch (Exception e) {
+                    Console.WriteLine(e);
+                    throw new ParameterException("One of the inputs is not an Image Capture component.");
                 }
 
-                // TODO ingest images as well
-                // need to get the bitmap from a viewport recorder and associate it with a name
-                // refer to https://discourse.mcneel.com/t/capture-viewport-as-image-in-cache/137791/2
+                try {
+                    result.files = new Dictionary<string, string>();
+                    var filesList = GetParameterList<string>(DA, "Files");
+                    sourceCounter = 0;
+                    foreach (string filename in filesList)
+                    {
+                        result.files.Add(
+                            Params.Input[3].Sources[sourceCounter].NickName,
+                            filename
+                        );
+                        sourceCounter++;
+                    }
+                } catch (ParameterException) {
+                    // do nothing if there are no file names mentioned
+                }
 
-                DA.SetData(0, JsonConvert.SerializeObject(result));
-            } catch (ParameterException) {
-                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Missing Parameters");
+                DA.SetData(0, result);
+            } catch (ParameterException e) {
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, e.Message);
             } catch (Exception e) {
                 AddRuntimeMessage(GH_RuntimeMessageLevel.Error, e.Message);
             }
