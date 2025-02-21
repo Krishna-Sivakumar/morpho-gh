@@ -20,7 +20,7 @@ struct AlgorithmParameterSet
   }
 }
 
-namespace ghplugin
+namespace morpho
 {
   public class Parameters : GH_Component
   {

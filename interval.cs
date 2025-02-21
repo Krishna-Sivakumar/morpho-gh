@@ -7,7 +7,7 @@ using Rhino;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace ghplugin
+namespace morpho
 {
 
 	public struct MorphoInterval

@@ -151,6 +151,7 @@ namespace morpho
             pManager[0].Optional = true;
             pManager[1].Optional = true;
             pManager[2].Optional = true;
+            pManager[4].Optional = true;
         }
 
         protected override void RegisterOutputParams(GH_OutputParamManager pManager)
@@ -285,17 +286,23 @@ namespace morpho
                 throw new ParameterException();
         }
 
+        private static void checkError(bool success, string message)
+        {
+            if (!success)
+                throw new ParameterException(message);
+        }
+
         private static List<T> GetParameterList<T>(IGH_DataAccess DA, string fieldName)
         {
             List<T> data_items = new List<T>();
-            checkError(DA.GetDataList(fieldName, data_items));
+            checkError(DA.GetDataList(fieldName, data_items), $"Missing parameter {fieldName}");
             return data_items;
         }
 
         private static T GetParameter<T>(IGH_DataAccess DA, string fieldName)
         {
             T data_item = default;
-            checkError(DA.GetData(fieldName, ref data_item));
+            checkError(DA.GetData(fieldName, ref data_item), $"Missing parameter {fieldName}");
             return data_item;
         }
 
@@ -303,6 +310,19 @@ namespace morpho
         {
             try
             {
+                try {
+                    is_systematic = GetParameter<bool>(DA, "Is Systematic");
+                } catch (ParameterException) {
+                    // generator isn't systematic by default 
+                    is_systematic = false;
+                }
+
+                try {
+                    seed = (int)GetParameter<double>(DA, "Seed");
+                } catch (ParameterException) {
+                    // generator uses a random seed by default
+                }
+
                 try
                 {
                     string parameterString = GetParameter<string>(DA, "Algorithm Parameters");
@@ -315,7 +335,13 @@ namespace morpho
                 }
 
                 // we get the parameters needed to fetch the solution set from the local database
-                string fitnessFilterString = GetParameter<string>(DA, "Fitness Filters");
+                string fitnessFilterString = "";
+                try {
+                    fitnessFilterString = GetParameter<string>(DA, "Fitness Filters");
+                } catch (ParameterException) {
+                    // filters remain empty if they're missing. 
+                }
+
                 string directoryString = GetParameter<string>(DA, "Directory");
                 var directoryParameters = JsonConvert.DeserializeObject<DirectoryParameters>(directoryString);
 
@@ -349,6 +375,8 @@ namespace morpho
                 }
                 else
                 {
+                    // clear out the random generators when the toggle is turned off
+                    randomGenerators.Clear();
                     // resetting the timer on a toggle switch
                     iterationStats.expired = false;
                     StopTimer();
