@@ -94,8 +94,6 @@ namespace morpho
                 viewportMap.Add(view.ActiveViewport.Name, view.ActiveViewportID);
             }
 
-            // TODO support named views later
-
             var label = new ToolStripLabel();
             label.Text = "Select Viewport:";
             menu.Items.Add(label);
@@ -116,18 +114,8 @@ namespace morpho
                 return;
             }
 
-            var captureSettings = new ViewCaptureSettings(this.viewport, this.viewport.Size, 1200);
-            captureSettings.Resolution = 300;
-            captureSettings.Document = RhinoDoc.ActiveDoc;
-            captureSettings.DrawAxis = false;
-            captureSettings.DrawAxis = false;
-            captureSettings.DrawGrid = false;
-            captureSettings.RasterMode = true;
-            captureSettings.DrawBackground = false;
-            captureSettings.SetModelScaleToFit(true);
-
             NamedBitmap namedBitmap = new NamedBitmap{
-                bitmap =  ViewCapture.CaptureToBitmap(captureSettings),
+                bitmap =  this.viewport.CaptureToBitmap(),
                 name = tag
             };
 
