@@ -8,7 +8,7 @@ using Newtonsoft.Json;
 namespace morpho
 {
 
-    public class SaveToDisk : GH_Component
+    public class SaveToPopulation : GH_Component
     {
 
         public struct SerializableSolution
@@ -24,8 +24,8 @@ namespace morpho
         /// Subcategory the panel. If you use non-existing tab or panel names, 
         /// new tabs/panels will automatically be created.
         /// </summary>
-        public SaveToDisk()
-          : base("Save to Disk", "Save to Disk",
+        public SaveToPopulation()
+          : base("Save to Population", "Save to Population",
             "Saves aggregated data to disk.",
             "Morpho", "Genetic Search")
         {
