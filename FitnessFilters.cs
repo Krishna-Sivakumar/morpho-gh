@@ -6,6 +6,73 @@ using System.Windows.Forms;
 
 namespace morpho
 {
+    /*
+     * USAGE:
+     * FilterExpression captures a nested set of fitness filters. Calling Eval()
+     * on the top level filter will recursively resolve the expressions and return a string
+     * ready to be inserted into the WHERE condition of a SQL query.
+     *
+     * However, the user will have to provide a $projectName variable during query execution
+     * and a dictionary mapping parameters to their category (input or output variables) to the top-level Eval() call.
+     *
+     * The $projectName variable is necessary for executing subqueries for Top-N and Bottom-N selection,
+     * and the category mapping is required to build the correct query without having to 
+     * use column-agnostic queries like before.
+    */
+
+    public enum ParamType {
+        Input == "parameters",
+        Output == "output_parameters"
+    }
+
+    public enum FilterJoinType {
+        AND,
+        OR
+    }
+    
+    public enum FilterOpType {
+        GreaterThan = ">",
+        LesserThan = "<",
+        Equal = "=",
+        NotEqual = "<>",
+        GreaterThanOrEqual = ">=",
+        LesserThanOrEqual = "<=",
+        TopN,
+        BottomN
+    }
+
+    public interface FilterExpression {
+        public string Eval(Dictionary<string, ParamType> paramTypes);
+    }
+
+    public class FilterJoinExpression : FilterExpression {
+        FilterLeafExpression LHS, RHS;
+        FilterJoinType Op;
+
+        public string Eval(Dictionary<string, ParamType> paramTypes) {
+            return $"{LHS.Eval(paramTypes)} {Op} {RHS.Eval(paramTypes)}"
+        }
+    }
+
+    public class FilterLeafExpression : FilterExpression {
+        string parameter;
+        string value;
+        FilterOpType Op;
+
+        public string Eval(Dictionary<string, ParamType> paramTypes) {
+            var paramType = paramTypes[parameter]; // throws KeyNotFoundException if not found. TODO Handle this gracefully.
+            if (Op == FilterOpType.TopN) {
+                return $"id IN (SELECT id FROM solution WHERE project_name=$projectName ORDER BY $json_extract({paramType} DESC, '$.{parameter}') LIMIT {value};)"
+            } else if (Op == FilterOpType.BottomN) {
+                return $"id IN (SELECT id FROM solution WHERE project_name=$projectName ORDER BY $json_extract({paramType} ASC, '$.{parameter}') LIMIT {value};)"
+            } else {
+                return $"json_extract({paramType}, '$.{parameter}') {Op} {value}";
+            }
+        }
+    }
+
+    // TODO: rewrite the following components to use the expression classes.
+
     public class Filter : GH_Component
     {
         public static string Join(List<string> strings, string delimiter) {
@@ -39,7 +106,9 @@ namespace morpho
         private const string equalTo = "=";
         private const string lesserThanOrEqualTo = "<=";
         private const string greaterThanOrEqualTo = ">=";
-        private string[] operatorSet = { greaterThan, lesserThan, equalTo, lesserThanOrEqualTo, greaterThanOrEqualTo };
+        private const string topN = "Top N";
+	    private const string bottomN = "Bottom N";
+        private string[] operatorSet = { greaterThan, lesserThan, equalTo, lesserThanOrEqualTo, greaterThanOrEqualTo, topN, bottomN };
 
         string filterOperator;
         string parameterName;
@@ -55,7 +124,7 @@ namespace morpho
         public Filter()
           : base("Filter", "Filter",
             "Determines an individual filter for the fitness function",
-            "Morpho", "Conditional Filters")
+            "Morpho", "Fitness Functions")
         {
             this.filterOperator = greaterThan;
             this.NickName = this.filterOperator;
@@ -102,9 +171,9 @@ namespace morpho
         {
             DA.GetData(0, ref this.parameterName);
             DA.GetData(1, ref this.filterValue);
-            var input_expression = $"json_extract(parameters, '$.{this.parameterName}') {this.filterOperator} {this.filterValue}";
-            var output_expression = $"json_extract(output_parameters, '$.{this.parameterName}') {this.filterOperator} {this.filterValue}";
-            DA.SetData(0, $"({input_expression} OR {output_expression})");
+            var input_parameter_expression = $"json_extract(parameters, '$.{this.parameterName}') {this.filterOperator} {this.filterValue}";
+            var output_parameter_expression = $"json_extract(output_parameters, '$.{this.parameterName}') {this.filterOperator} {this.filterValue}";
+            DA.SetData(0, $"({input_parameter_expression} OR {output_parameter_expression})");
         }
 
         /// <summary>
@@ -143,7 +212,7 @@ namespace morpho
         public FilterConjuction()
           : base("Filter Conjunction", "Filter Conjuction",
             "Joins two or more fitness filters with a binary AND",
-            "Morpho", "Conditional Filters")
+            "Morpho", "Fitness Functions")
         {
         }
 
@@ -209,7 +278,7 @@ namespace morpho
         public FilterDisjunction()
           : base("Filter Disjunction", "Filter Disjunction",
             "Joins two or more fitness filters with a boolean OR",
-            "Morpho", "Conditional Filters")
+            "Morpho", "Fitness Functions")
         {
         }
 

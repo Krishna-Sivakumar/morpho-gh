@@ -255,13 +255,52 @@ namespace morpho {
         }
 
         /// <summary>
+        /// Gets a mapping from parameter to category of parameter (input / output)
+        /// </summary>
+        private Dictionary<string, ParamType> GetSchema() {
+            // TODO stub; fill in later
+            var schema = new Dictionary<string, ParamType>();
+
+            using (var DBConnection = new SQLiteConnection(connectionBuilder.ToString()))
+            {
+                var query = "SELECT parameters, output_parameters FROM solution WHERE project_name=$projectName ORDER BY id DESC LIMIT 1";
+                var command = DBConnection.CreateCommand();
+                command.CommandText = query;
+                command.Parameters.AddWithValue("$projectName", projectName);
+                using (var reader = command.ExecuteReader()) {
+                    while (reader.Read()) {
+                        // inspect the contents of the first 
+                        Dictionary<string, double> parameters = JsonConvert.DeserializeObject<Dictionary<string, double>>(reader.GetString(0));
+                        Dictionary<string, double> outputParameters = JsonConvert.DeserializeObject<Dictionary<string, double>>(reader.GetString(0));
+                        foreach (var pair in parameters) {
+                            schema.Add(pair.Key, ParamType.Input);
+                        }
+                        foreach (var pair in outputParameters) {
+                            schema.Add(pair.Key, ParamType.Output);
+                        }
+                    }
+                }
+            }
+
+            return schema;
+        }
+
+        /// <summary>
         /// Gets a list of solution associated with a projected and constrained by a set of fitnessConditions.
         /// </summary>
         /// <param name="projectName">Name of the project to query against.</param>
         /// <param name="fitnessConditions">Fitness conditions to constrain solution by. Leave empty to get all solutions associated with the project.</param>
         /// <returns></returns>
+        // TODO: this must accept a parameter of type FilterExpression instead of string, and call Eval() on it after getting the schema out of the table.
         public MorphoSolution[] GetSolutions(string projectName, string fitnessConditions) {
+            // if GetSchema() returns a dictionary with nothing i.e. there are no records yet, terminate the query and return nothing.
             List<MorphoSolution> solutions = new List<MorphoSolution>();
+            var schema = GetSchema();
+            if (schema.Count == 0)
+            {
+                return solutions;
+            }
+
             // 1. make a connection to directory/solutions.db
             using (var DBConnection = new SQLiteConnection(connectionBuilder.ToString()))
             {

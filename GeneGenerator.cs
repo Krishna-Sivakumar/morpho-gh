@@ -136,6 +136,7 @@ namespace morpho
 
         protected override void RegisterInputParams(GH_Component.GH_InputParamManager pManager)
         {
+            // TODO: this must accept a generic parameter with the interface FilterExpression
             // Use the pManager object to register your input parameters.
             // You can often supply default values when creating parameters.
             // All parameters must have the correct access type. If you want 
@@ -334,6 +335,7 @@ namespace morpho
                     algorithmParameters.Default();
                 }
 
+                // TODO: this must accept a generic parameter with the interface FilterExpression
                 // we get the parameters needed to fetch the solution set from the local database
                 string fitnessFilterString = "";
                 try {
