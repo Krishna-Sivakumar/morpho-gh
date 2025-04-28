@@ -3,125 +3,68 @@ using Newtonsoft.Json;
 
 using Grasshopper.Kernel;
 
-struct AlgorithmParameterSet
+public class AlgorithmParameterSet
 {
-  public double probability_xover;
-  public double probability_mutation;
-  public double dist_index_xover;
-  public double dist_index_mutation;
+    public double probability_mutation;
+    public double spread_factor;
 
-  public void Default()
-  {
-    // need to change this later
-    probability_xover = 0.5;
-    probability_mutation = 0.5;
-    dist_index_xover = 0;
-    dist_index_mutation = 0;
-  }
+    public AlgorithmParameterSet() {
+        // mutation happens on a coin-flip
+        probability_mutation = 0.5;
+        // The outputs of a gene-combination lies on the line between the two genes, if spread_factor = 0. 
+        // Any higher than 0 or any lower than -1 and it will move outside the line.
+        spread_factor = 0;          
+    }
+
+    public override string ToString() {
+        return $"Mutation Probability: {this.probability_mutation}\n Spread Factor: {this.spread_factor}";
+    }
 }
 
-namespace morpho
-{
-  public class Parameters : GH_Component
-  {
-    /// <summary>
-    /// Each implementation of GH_Component must provide a public 
-    /// constructor without any arguments.
-    /// Category represents the Tab in which the component will appear, 
-    /// Subcategory the panel. If you use non-existing tab or panel names, 
-    /// new tabs/panels will automatically be created.
-    /// </summary>
-    public Parameters()
-      : base("Parameters", "Parameters",
-        "Parameters for the Genetic Search",
-        "Morpho", "Genetic Search")
+namespace morpho {
+    public class Parameters : GH_Component
     {
-    }
+        public Parameters() : base("Parameters", "Parameters", "Parameters for the Genetic Search", "Morpho", "Genetic Search") {}
 
+        /// <summary>Registers all the input parameters for this component.</summary>
+        protected override void RegisterInputParams(GH_InputParamManager pManager) {
+        pManager.AddNumberParameter("Mutation Probability", "Mutation Probability", "The chance that a new gene will be randomly produced.", GH_ParamAccess.item);
+        pManager.AddNumberParameter("Spread Factor", "Spread Factor", "Constant used to control the spread of children production. A value within [-1, 0] keeps a child gene between the parents. The child has a chance of falling outside, otherwise.", GH_ParamAccess.item);
+        }
 
-    /// <summary>
-    /// Registers all the input parameters for this component.
-    /// </summary>
-    protected override void RegisterInputParams(GH_Component.GH_InputParamManager pManager)
-    {
-      // Use the pManager object to register your input parameters.
-      // You can often supply default values when creating parameters.
-      // All parameters must have the correct access type. If you want 
-      // to import lists or trees of values, modify the ParamAccess flag.
-      pManager.AddNumberParameter("Cross-Over Probability", "Cross-Over Probability", "Cross-Over Probability used by the algorithm", GH_ParamAccess.item);
-      pManager.AddNumberParameter("Mutation Probability", "Mutation Probability", "Mutation Probability used by the algorithm", GH_ParamAccess.item);
-      pManager.AddNumberParameter("Cross-Over Distribution Index", "Cross-Over Distribution Index", "Cross-Over Distribution Index used by the algorithm", GH_ParamAccess.item);
-      pManager.AddNumberParameter("Mutation Distribution Index", "Mutation Distribution Index", "Mutation Distribution Index used by the algorithm", GH_ParamAccess.item);
-    }
+        /// <summary>Registers all the output parameters for this component.</summary>
+        protected override void RegisterOutputParams(GH_OutputParamManager pManager) {
+        pManager.AddGenericParameter("Parameters", "Parameters", "Set of Parameters, Encoded", GH_ParamAccess.item);
+        }
 
-    /// <summary>
-    /// Registers all the output parameters for this component.
-    /// </summary>
-    protected override void RegisterOutputParams(GH_Component.GH_OutputParamManager pManager)
-    {
-      // Use the pManager object to register your output parameters.
-      // Output parameters do not have default values, but they too must have the correct access type.
-      pManager.AddTextParameter("Parameters", "Parameters", "Set of Parameters, Encoded", GH_ParamAccess.item);
+        /// <summary> If the statusFlag is set to false, raise an error. To be used with Grasshopper's DA methods. </summary>
+        private static void checkError(bool statusFlag, string parameterName) {
+        if (!statusFlag) throw new ParameterException(parameterName);
+        }
 
-      // Sometimes you want to hide a specific parameter from the Rhino preview.
-      // You can use the HideParameter() method as a quick way:
-      // pManager.HideParameter(0);
-    }
+        private static T GetParameter<T>(IGH_DataAccess DA, string fieldName) {
+        T data_item = default;
+        checkError(DA.GetData(fieldName, ref data_item), fieldName);
+        return data_item;
+        }
 
-    private static void checkError(bool success)
-    {
-      if (!success)
-        throw new ParameterException();
-    }
-
-    private static T GetParameter<T>(IGH_DataAccess DA, string fieldName) {
-      T data_item = default;
-      checkError(DA.GetData(fieldName, ref data_item));
-      return data_item;
-    }
-
-    /// <summary>
-    /// This is the method that actually does the work.
-    /// </summary>
-    /// <param name="DA">The DA object can be used to retrieve data from input parameters and 
-    /// to store data in output parameters.</param>
-    protected override void SolveInstance(IGH_DataAccess DA)
-    {
-      try {
+        /// <summary>This is the method that actually does the work.</summary>
+        /// <param name="DA">The DA object can be used to retrieve data from input parameters and to store data in output parameters.</param>
+        protected override void SolveInstance(IGH_DataAccess DA)
+        {
         AlgorithmParameterSet p = new AlgorithmParameterSet();
+        try {
+            p.probability_mutation = GetParameter<double>(DA, "Mutation Probability");
+            p.spread_factor = GetParameter<double>(DA, "Spread Factor");
+        } catch (ParameterException exception) {
+            AddRuntimeMessage(GH_RuntimeMessageLevel.Remark, $"{exception.Message} is missing. A default value is assumed.");
+        } finally {
+            DA.SetData(0, p);
+        }
+        }
 
-        p.probability_xover = GetParameter<double>(DA, "Cross-Over Probability");
-        p.probability_mutation = GetParameter<double>(DA, "Mutation Probability");
-        p.dist_index_xover = GetParameter<double>(DA, "Cross-Over Distribution Index");
-        p.dist_index_mutation = GetParameter<double>(DA, "Mutation Distribution Index");
-        string json = JsonConvert.SerializeObject(p);
-        DA.SetData(0, json);
-      } catch (ParameterException) {
-        AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Parameters Missing");
-      }
+        public override GH_Exposure Exposure => GH_Exposure.primary;
+        protected override System.Drawing.Bitmap Icon => null;
+        public override Guid ComponentGuid => new Guid("e0e098e6-0f5d-49f3-8eae-b6285862bdf3");
     }
-
-    /// <summary>
-    /// The Exposure property controls where in the panel a component icon 
-    /// will appear. There are seven possible locations (primary to septenary), 
-    /// each of which can be combined with the GH_Exposure.obscure flag, which 
-    /// ensures the component will only be visible on panel dropdowns.
-    /// </summary>
-    public override GH_Exposure Exposure => GH_Exposure.primary;
-
-    /// <summary>
-    /// Provides an Icon for every component that will be visible in the User Interface.
-    /// Icons need to be 24x24 pixels.
-    /// You can add image files to your project resources and access them like this:
-    /// return Resources.IconForThisComponent;
-    /// </summary>
-    protected override System.Drawing.Bitmap Icon => null;
-
-    /// <summary>
-    /// Each component must have a unique Guid to identify it. 
-    /// It is vital this Guid doesn't change otherwise old ghx files 
-    /// that use the old ID will partially fail during loading.
-    /// </summary>
-    public override Guid ComponentGuid => new Guid("e0e098e6-0f5d-49f3-8eae-b6285862bdf3");
-  }
 }

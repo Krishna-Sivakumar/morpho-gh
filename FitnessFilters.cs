@@ -8,8 +8,8 @@ namespace morpho
 {
     /*
      * USAGE:
-     * FilterExpression captures a nested set of fitness filters. Calling Eval()
-     * on the top level filter will recursively resolve the expressions and return a string
+     * FilterExpression captures a nested set of fitness filters.
+     * Calling Eval() on the top level filter will recursively resolve the expressions and return a string
      * ready to be inserted into the WHERE condition of a SQL query.
      *
      * However, the user will have to provide a $projectName variable during query execution
@@ -21,8 +21,8 @@ namespace morpho
     */
 
     public enum ParamType {
-        Input == "parameters",
-        Output == "output_parameters"
+        Input,
+        Output
     }
 
     public enum FilterJoinType {
@@ -31,42 +31,114 @@ namespace morpho
     }
     
     public enum FilterOpType {
-        GreaterThan = ">",
-        LesserThan = "<",
-        Equal = "=",
-        NotEqual = "<>",
-        GreaterThanOrEqual = ">=",
-        LesserThanOrEqual = "<=",
+        GreaterThan,
+        LesserThan,
+        Equal,
+        NotEqual,
+        GreaterThanOrEqual,
+        LesserThanOrEqual,
         TopN,
         BottomN
     }
 
-    public interface FilterExpression {
-        public string Eval(Dictionary<string, ParamType> paramTypes);
+    static class FilterEnumResolution {
+        public static string ResolveParamType(ParamType pt) {
+            if (pt == ParamType.Input) {
+                return "parameters";
+            } else {
+                return "output_parameters";
+            }
+        }
+
+        public static string ResolveJoin(FilterJoinType jt) {
+            if (jt == FilterJoinType.AND) {
+                return "AND";
+            } else {
+                return "OR";
+            }
+        }
+
+        public static string ResolveOp(FilterOpType op) {
+            switch (op) {
+                case FilterOpType.GreaterThan: return ">";
+                case FilterOpType.LesserThan: return "<";
+                case FilterOpType.Equal: return "=";
+                case FilterOpType.NotEqual: return "<>";
+                case FilterOpType.GreaterThanOrEqual: return ">=";
+                case FilterOpType.LesserThanOrEqual: return "<=";
+                case FilterOpType.TopN: return "TopN";
+                case FilterOpType.BottomN: return "BottomN";
+            }
+            throw new Exception("Invalid Operation");
+        }
     }
 
-    public class FilterJoinExpression : FilterExpression {
-        FilterLeafExpression LHS, RHS;
-        FilterJoinType Op;
+    
+
+    public interface FilterExpression {
+        string Eval(Dictionary<string, ParamType> paramTypes);
+    }
+
+    /// <summary> Returns an empty string. This is a placeholder. </summary>
+    public class EmptyFilterExpression : FilterExpression {
+        public override string ToString() {
+            return "";
+        }
 
         public string Eval(Dictionary<string, ParamType> paramTypes) {
-            return $"{LHS.Eval(paramTypes)} {Op} {RHS.Eval(paramTypes)}"
+            return "";
+        }
+    }
+
+
+    public class FilterJoinExpression : FilterExpression {
+        public FilterExpression LHS, RHS;
+        public FilterJoinType Op;
+
+        public FilterJoinExpression(FilterExpression LHS, FilterExpression RHS, FilterJoinType Op) {
+            this.LHS = LHS;
+            this.RHS = RHS;
+            this.Op = Op;
+        }
+
+        public override string ToString()
+        {
+            return $"({Op} {LHS} {RHS})";
+        }
+
+        public string Eval(Dictionary<string, ParamType> paramTypes) {
+            return $"{LHS.Eval(paramTypes)} {FilterEnumResolution.ResolveJoin(Op)} {RHS.Eval(paramTypes)}";
         }
     }
 
     public class FilterLeafExpression : FilterExpression {
-        string parameter;
-        string value;
-        FilterOpType Op;
+        public string parameter;
+        public string value;
+        public FilterOpType Op;
+
+        public FilterLeafExpression(string parameter, string value, FilterOpType Op) {
+            this.parameter = parameter;
+            this.value = value;
+            this.Op = Op;
+        }
+
+        override public string ToString() {
+            return $"({Op} {parameter} {value})";
+        }
 
         public string Eval(Dictionary<string, ParamType> paramTypes) {
-            var paramType = paramTypes[parameter]; // throws KeyNotFoundException if not found. TODO Handle this gracefully.
+            string paramType;
+            try { 
+                paramType = FilterEnumResolution.ResolveParamType(paramTypes[parameter]); 
+            } catch {
+                paramType = FilterEnumResolution.ResolveParamType(ParamType.Output); // Assume that a variable is an output if a specification is not provided.
+            }
             if (Op == FilterOpType.TopN) {
-                return $"id IN (SELECT id FROM solution WHERE project_name=$projectName ORDER BY $json_extract({paramType} DESC, '$.{parameter}') LIMIT {value};)"
+                return $"id IN (SELECT id FROM solution WHERE project_name=$projectName ORDER BY json_extract({paramType}, '$.{parameter}') DESC LIMIT {value})";
             } else if (Op == FilterOpType.BottomN) {
-                return $"id IN (SELECT id FROM solution WHERE project_name=$projectName ORDER BY $json_extract({paramType} ASC, '$.{parameter}') LIMIT {value};)"
+                return $"id IN (SELECT id FROM solution WHERE project_name=$projectName ORDER BY json_extract({paramType}, '$.{parameter}') ASC LIMIT {value})";
             } else {
-                return $"json_extract({paramType}, '$.{parameter}') {Op} {value}";
+                return $"json_extract({paramType}, '$.{parameter}') {FilterEnumResolution.ResolveOp(Op)} {value}";
             }
         }
     }
@@ -75,42 +147,7 @@ namespace morpho
 
     public class Filter : GH_Component
     {
-        public static string Join(List<string> strings, string delimiter) {
-            var result = new StringBuilder();
-            for (int i = 0; i < strings.Count; i ++) {
-                if (i == strings.Count - 1) {
-                    result.Append(strings[i]);
-                } else {
-                    result.Append(strings[i]);
-                    result.Append(delimiter);
-                }
-            }
-            return result.ToString();
-        }
-
-        public static string Join(string[] strings, string delimiter) {
-            var result = new StringBuilder();
-            for (int i = 0; i < strings.Length; i ++) {
-                if (i == strings.Length - 1) {
-                    result.Append(strings[i]);
-                } else {
-                    result.Append(strings[i]);
-                    result.Append(delimiter);
-                }
-            }
-            return result.ToString();
-        }
-
-        private const string greaterThan = ">";
-        private const string lesserThan = "<";
-        private const string equalTo = "=";
-        private const string lesserThanOrEqualTo = "<=";
-        private const string greaterThanOrEqualTo = ">=";
-        private const string topN = "Top N";
-	    private const string bottomN = "Bottom N";
-        private string[] operatorSet = { greaterThan, lesserThan, equalTo, lesserThanOrEqualTo, greaterThanOrEqualTo, topN, bottomN };
-
-        string filterOperator;
+        FilterOpType filterOperator;
         string parameterName;
         string filterValue;
 
@@ -126,18 +163,19 @@ namespace morpho
             "Determines an individual filter for the fitness function",
             "Morpho", "Fitness Functions")
         {
-            this.filterOperator = greaterThan;
-            this.NickName = this.filterOperator;
+            this.filterOperator = FilterOpType.GreaterThan;
+            this.NickName = FilterOpType.GreaterThan.ToString();
         }
 
         public override void
         AppendAdditionalMenuItems(ToolStripDropDown menu)
         {
             base.AppendAdditionalComponentMenuItems(menu);
-            foreach (string op in operatorSet) {
-                Menu_AppendItem(menu, op, delegate (Object o, EventArgs e) {
+            // Each menu item sets a value from the FilterOpType 
+            foreach (FilterOpType op in new FilterOpType[]{FilterOpType.GreaterThan, FilterOpType.LesserThan, FilterOpType.GreaterThanOrEqual, FilterOpType.LesserThanOrEqual, FilterOpType.NotEqual, FilterOpType.Equal, FilterOpType.BottomN, FilterOpType.TopN}) {
+                Menu_AppendItem(menu, op.ToString(), delegate (Object o, EventArgs e) {
                     this.filterOperator = op;
-                    this.NickName = this.filterOperator;
+                    this.NickName = this.filterOperator.ToString();
                     this.ExpireSolution(true);
                 });
             }
@@ -159,7 +197,7 @@ namespace morpho
 
         protected override void RegisterOutputParams(GH_OutputParamManager pManager)
         {
-            pManager.AddTextParameter("filter", "Filter", "Definition of a filter", GH_ParamAccess.item);
+            pManager.AddGenericParameter("filter", "Filter", "Definition of a filter", GH_ParamAccess.item);
         }
 
         /// <summary>
@@ -171,9 +209,7 @@ namespace morpho
         {
             DA.GetData(0, ref this.parameterName);
             DA.GetData(1, ref this.filterValue);
-            var input_parameter_expression = $"json_extract(parameters, '$.{this.parameterName}') {this.filterOperator} {this.filterValue}";
-            var output_parameter_expression = $"json_extract(output_parameters, '$.{this.parameterName}') {this.filterOperator} {this.filterValue}";
-            DA.SetData(0, $"({input_parameter_expression} OR {output_parameter_expression})");
+            DA.SetData(0, new FilterLeafExpression(parameterName, filterValue, filterOperator));
         }
 
         /// <summary>
@@ -221,12 +257,12 @@ namespace morpho
         /// </summary>
         protected override void RegisterInputParams(GH_Component.GH_InputParamManager pManager)
         {
-            pManager.AddTextParameter("Fitness Filters", "Fitness Filters", "Set of fitness filters to be joined together.", GH_ParamAccess.list);
+            pManager.AddGenericParameter("Fitness Filters", "Fitness Filters", "Set of fitness filters to be joined together.", GH_ParamAccess.list);
         }
 
         protected override void RegisterOutputParams(GH_OutputParamManager pManager)
         {
-            pManager.AddTextParameter("filter", "Filter", "Definition of a filter", GH_ParamAccess.item);
+            pManager.AddGenericParameter("filter", "Filter", "Definition of a filter", GH_ParamAccess.item);
         }
 
         /// <summary>
@@ -236,10 +272,18 @@ namespace morpho
         /// to store data in output parameters.</param>
         protected override void SolveInstance(IGH_DataAccess DA)
         {
-            List<string> fitnessFilters = new List<string>();
+            List<FilterExpression> fitnessFilters = new List<FilterExpression>();
             DA.GetDataList(0, fitnessFilters);
-            var expression = Filter.Join(fitnessFilters, " AND ");
-            DA.SetData(0, expression);
+            FilterExpression f = null;
+            foreach (var filter in fitnessFilters) {
+                if (f == null) {
+                    f = filter;
+                } else {
+                    var joinExpression = new FilterJoinExpression(f, filter, FilterJoinType.AND);
+                    f = joinExpression;
+                }
+            }
+            DA.SetData(0, f);
         }
 
         /// <summary>
@@ -287,12 +331,12 @@ namespace morpho
         /// </summary>
         protected override void RegisterInputParams(GH_Component.GH_InputParamManager pManager)
         {
-            pManager.AddTextParameter("Fitness Filters", "Fitness Filters", "Set of fitness filters to be joined together.", GH_ParamAccess.list);
+            pManager.AddGenericParameter("Fitness Filters", "Fitness Filters", "Set of fitness filters to be joined together.", GH_ParamAccess.list);
         }
 
         protected override void RegisterOutputParams(GH_OutputParamManager pManager)
         {
-            pManager.AddTextParameter("filter", "Filter", "Definition of a filter", GH_ParamAccess.item);
+            pManager.AddGenericParameter("filter", "Filter", "Definition of a filter", GH_ParamAccess.item);
         }
 
         /// <summary>
@@ -302,10 +346,18 @@ namespace morpho
         /// to store data in output parameters.</param>
         protected override void SolveInstance(IGH_DataAccess DA)
         {
-            List<string> fitnessFilters = new List<string>();
+            List<FilterExpression> fitnessFilters = new List<FilterExpression>();
             DA.GetDataList(0, fitnessFilters);
-            var expression = Filter.Join(fitnessFilters.ToArray(), " OR ");
-            DA.SetData(0, expression);
+            FilterExpression f = null;
+            foreach (var filter in fitnessFilters) {
+                if (f == null) {
+                    f = filter;
+                } else {
+                    var joinExpression = new FilterJoinExpression(f, filter, FilterJoinType.OR);
+                    f = joinExpression;
+                }
+            }
+            DA.SetData(0, f);
         }
 
         /// <summary>

@@ -16,6 +16,12 @@ namespace morpho
 		public double start;
 		public double end;
 		public bool is_constant;
+		public double step;
+
+        public override string ToString()
+        {
+			return JsonConvert.SerializeObject(this);
+        }
 	}
 
 	public class Interval : GH_Component
@@ -41,24 +47,19 @@ namespace morpho
 		/// <summary>
 		/// Registers all the input parameters for this component.
 		/// </summary>
-		protected override void RegisterInputParams(GH_Component.GH_InputParamManager pManager)
+		protected override void RegisterInputParams(GH_InputParamManager pManager)
 		{
-			// Use the pManager object to register your input parameters.
-			// You can often supply default values when creating parameters.
-			// All parameters must have the correct access type. If you want 
-			// to import lists or trees of values, modify the ParamAccess flag.
 			pManager.AddNumberParameter("Start", "start", "Start of Interval", GH_ParamAccess.item);
 			pManager.AddNumberParameter("End", "end", "End of Interval", GH_ParamAccess.item);
+			pManager.AddNumberParameter("Step", "step", "The smallest unit change in the interval", GH_ParamAccess.item);
 			// TODO setup a step parameter here
 			Params.Input[1].Optional = true;
 		}
 
 		protected override void RegisterOutputParams(GH_OutputParamManager pManager)
 		{
-			pManager.AddTextParameter("Interval", "interval", "Interval generated", GH_ParamAccess.item);
+			pManager.AddGenericParameter("Interval", "interval", "Interval generated", GH_ParamAccess.item);
 		}
-
-		private Timer debounce;
 
 		protected static void checkError(bool success)
 		{
@@ -73,6 +74,13 @@ namespace morpho
 			return data_item;
 		}
 
+		private Timer debounce;
+
+		/// <summary>
+		/// An event trigger to recompute the interval component when the nickname changes.
+		/// </summary>
+		/// <param name="sender"></param>
+		/// <param name="args"></param>
 		protected void expireSolution(object sender, object args)
 		{
 			// we do not want to call ExpireSolution too many times on a nickname change. So we debounce the input by a second.
@@ -111,15 +119,21 @@ namespace morpho
 			{
 				interval.start = GetParameter<double>(DA, "Start");
 				interval.end = GetParameter<double>(DA, "End");
+				interval.step = GetParameter<double>(DA, "Step");
 				interval.name = NickName;
 
+				// if the start and the end is the same, the interval is a constant.
 				if (interval.start > interval.end)
 				{
 					interval.end = interval.start;
+					interval.step = 0;
 				}
 				interval.is_constant = interval.start == interval.end;
 
-				DA.SetData(0, JsonConvert.SerializeObject(interval));
+				// the step can only be as large as the gap between the start and the end.
+				interval.step = Math.Min(interval.step, Math.Abs(interval.end - interval.start));
+
+				DA.SetData(0, interval);
 			}
 			catch (ParameterException)
 			{
@@ -183,14 +197,14 @@ namespace morpho
 			// to import lists or trees of values, modify the ParamAccess flag.
 			pManager.AddNumberParameter("Start", "Start", "Start of Interval", GH_ParamAccess.item);
 			pManager.AddNumberParameter("End", "End", "End of Interval", GH_ParamAccess.item);
+			pManager.AddNumberParameter("Step", "step", "Size of step", GH_ParamAccess.item);
 			pManager.AddIntegerParameter("Count", "Count", "Number of intervals to generate", GH_ParamAccess.item);
-			// TODO setup a step parameter here
 			Params.Input[1].Optional = true;
 		}
 
 		protected override void RegisterOutputParams(GH_OutputParamManager pManager)
 		{
-			pManager.AddTextParameter("Intervals", "Intervals", "Intervals generated", GH_ParamAccess.list);
+			pManager.AddGenericParameter("Intervals", "Intervals", "Intervals generated", GH_ParamAccess.list);
 		}
 
 		private Timer debounce;
@@ -255,15 +269,15 @@ namespace morpho
 				}
 				interval.is_constant = interval.start == interval.end;
 
-				// we generate intervals with the name of form "name_index+1"
-				var encodedIntervals = new List<string>();
+				// we generate multiple intervals with the name of form "name_index+1"
+				var intervals = new List<MorphoInterval>();
 				for (int i = 0; i < intervalCount; i ++) {
 					var temp_interval = interval;
 					temp_interval.name = $"{interval.name}_{i+1}";
-					encodedIntervals.Add(JsonConvert.SerializeObject(temp_interval));
+					intervals.Append(temp_interval);
 				}
 
-				DA.SetDataList(0, encodedIntervals);
+				DA.SetDataList(0, intervals);
 			}
 			catch (ParameterException)
 			{

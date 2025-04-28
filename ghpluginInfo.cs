@@ -1,9 +1,10 @@
-using System;
+﻿using System;
 using System.Drawing;
 using Grasshopper.Kernel;
 
 namespace morpho
 {
+  // TODO fill this up with relevant information pointing to us.
   public class ghpluginInfo : GH_AssemblyInfo
   {
     public override string Name => "ghplugin Info";

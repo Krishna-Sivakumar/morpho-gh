@@ -6,12 +6,12 @@ using Rhino;
 using Grasshopper.Kernel;
 using System.Timers;
 using System.Linq;
+using Rhino.UI;
+using System.ComponentModel.DataAnnotations;
 
 namespace morpho
 {
-    using NumberSlider = Grasshopper.Kernel.Special.GH_NumberSlider;
-
-    public delegate void ExpireSolutionDelegate(Boolean recompute);
+    public delegate void ExpireSolutionDelegate(bool recompute);
 
     [Serializable]
     class ParameterException: Exception {
@@ -20,16 +20,10 @@ namespace morpho
         public ParameterException(string message, Exception innerException) : base (message, innerException) {}
     }
 
-    /// <summary>
-    /// Represents a set of input parameters associated with a solution.
-    /// </summary>
+    /// <summary> Represents a set of input parameters associated with a solution. </summary>
     public struct MorphoSolution
     {
         public Dictionary<string, double> values;
-    }
-
-    public struct SolutionSetParameters {
-        public string directory, projectName, fitnessConditions;
     }
 
     public class GeneGenerator : GH_Component
@@ -40,13 +34,17 @@ namespace morpho
         private Dictionary<int, Random> randomGenerators;
         
 
-        // Timer Section
+        /*
+
+            Timer Section 
+
+        */
 
         /// <summary>Tracks all the details needed to iterate the component.</summary>
         private struct IterationStats
         {
             public long iterationLimit;
-            public long iterationCount;
+            public long iterationCount; // how many iterations have occurred?
             public string directory;    // directory of the project
             public string projectName;  // name of the project within the DB
             public Timer timer;         // actual timer object doing the heavy lifting
@@ -54,39 +52,30 @@ namespace morpho
         };
         private IterationStats iterationStats;
 
-        // private long getCurrentDBIteration(DirectoryParameters directory)
-        // {
-            // DBOps db = new DBOps(directory);
-            // return db.GetSolutionCount(directory.projectName);
-        // }
-
-        /// Callback for the inprocess timer to check if the database has been updated
+        /// <summary>
+        /// Callback for when the in-component timer expires.
+        /// Checks if there are more solutions in the database than before, and expires this component if that is the case (basically starting a recomputation).
+        /// </summary>
         private void setTimerExpired(Object src, ElapsedEventArgs e)
         {
-            DBOps ops = new DBOps(new DirectoryParameters{directory = iterationStats.directory, projectName = iterationStats.projectName});
+            DBOps dbOps = new DBOps(new DirectoryParameters{directory = iterationStats.directory, projectName = iterationStats.projectName});
 
             // check if the count of elements were advanced and then restart this component if they have.
-            var currentIterationCount = ops.GetSolutionCount(iterationStats.projectName);
+            var currentIterationCount = dbOps.GetSolutionCount(iterationStats.projectName);
             if (currentIterationCount > this.iterationStats.iterationCount)
             {
-                Console.WriteLine("current iteration:");
-                Console.WriteLine(currentIterationCount);
                 iterationStats.iterationCount = currentIterationCount;
-                if (currentIterationCount < iterationStats.iterationLimit)
-                {
-                    Console.WriteLine("iteration limit:");
-                    Console.WriteLine(iterationStats.iterationLimit);
-                }
-                else
-                {
-                    // we nullify the timer, so that re-enabling the generator restarts the timer
+                if (currentIterationCount >= iterationStats.iterationLimit) {
                     iterationStats.timer.Stop();
                     iterationStats.timer = null;
                     return;
                 }
 
-                // Cannot call ExpireSolution(true) directly if it's not a UI component. So we do this.
-                // Refer to https://discourse.mcneel.com/t/system-invalidoperationexception-cross-thread-operation-not-valid/95176.
+                /* 
+                    Expire the solution.
+                    We cannot call ExpireSolution(true) directly if it's not a UI component, so we do the following instead.
+                    Refer to https://discourse.mcneel.com/t/system-invalidoperationexception-cross-thread-operation-not-valid/95176 for details.
+                */
                 var d = new ExpireSolutionDelegate(ExpireSolution);
                 RhinoApp.InvokeOnUiThread(d, true);
             }
@@ -111,14 +100,17 @@ namespace morpho
         private void StopTimer()
         {
             iterationStats.iterationCount = 0;
-            if (iterationStats.timer != null)
-            {
+            if (iterationStats.timer != null) {
                 iterationStats.timer.Stop();
             }
             iterationStats.timer = null;
         }
 
-        // End Timer Section
+        /*
+
+            End Timer Section.
+
+        */
 
         /// <summary>
         /// Creates a gene generation cycle that runs for a set amount of iterations.
@@ -136,19 +128,14 @@ namespace morpho
 
         protected override void RegisterInputParams(GH_Component.GH_InputParamManager pManager)
         {
-            // TODO: this must accept a generic parameter with the interface FilterExpression
-            // Use the pManager object to register your input parameters.
-            // You can often supply default values when creating parameters.
-            // All parameters must have the correct access type. If you want 
-            // to import lists or trees of values, modify the ParamAccess flag.
             pManager.AddBooleanParameter("Is Systematic", "Is Systematic", "Is the gene generation systematic? i.e., Are genes generation using an existing solution set?", GH_ParamAccess.item);
             pManager.AddNumberParameter("Seed", "Seed", "Seed for random generation.", GH_ParamAccess.item);
-            pManager.AddTextParameter("Algorithm Parameters", "Algorithm Parameters", "Parameters for Generating Genes.", GH_ParamAccess.item);
+            pManager.AddGenericParameter("Algorithm Parameters", "Algorithm Parameters", "Parameters for Generating Genes.", GH_ParamAccess.item);
             pManager.AddBooleanParameter("Initiate", "Initiate", "Initiates the Gene Generator.", GH_ParamAccess.item);
-            pManager.AddTextParameter("Fitness Filters", "Fitness Filters", "Conditions to filter the population by", GH_ParamAccess.item);
-            pManager.AddTextParameter("Intervals", "Intervals", "Set of Intervals for each input.", GH_ParamAccess.list);
+            pManager.AddGenericParameter("Fitness Filters", "Fitness Filters", "Conditions to filter the population by", GH_ParamAccess.item);
+            pManager.AddGenericParameter("Intervals", "Intervals", "Set of Intervals for each input.", GH_ParamAccess.list);
             pManager.AddIntegerParameter("Iteration Limit", "Iterations", "Number of iterations to run the generator for.", GH_ParamAccess.item);
-            pManager.AddTextParameter("Directory", "Directory", "Directory to save generations results under. Should be connected to the Directory creature.", GH_ParamAccess.item);
+            pManager.AddGenericParameter("Directory", "Directory", "Directory to save generations results under. Should be connected to the Directory creature.", GH_ParamAccess.item);
             pManager[0].Optional = true;
             pManager[1].Optional = true;
             pManager[2].Optional = true;
@@ -161,7 +148,13 @@ namespace morpho
             pManager.AddTextParameter("Genes with Names", "Genes CSV", "List of Genes with associated names. Should be connected to Save To Disk's Input parameter.", GH_ParamAccess.list);
         }
 
-        double generateRandomDouble(double start, double end)
+        /// <summary>Flips an imaginary coin and returns if it is heads or tails.</summary>
+        /// <returns>returns True if the result is positive, else returns false.</returns>
+        private bool onCoinFlip() {
+            return generateRandomDouble(0, 1) < 0.5;
+        }
+
+        private double generateRandomDouble(double start, double end, double step = 0)
         {
             // random generators are preserved through runs
             if (!randomGenerators.ContainsKey(this.seed))
@@ -175,124 +168,101 @@ namespace morpho
             return result;
         }
 
-        int generateRandomInt(int start, int end)
-        {
-            // random generators are preserved through runs
-            if (!randomGenerators.ContainsKey(this.seed))
-            {
-                randomGenerators.Add(this.seed, new Random(this.seed));
+        private double uniformLine(double point1, double point2, double step) {
+            var difference = Math.Abs(point1 - point2);
+            // mu = (1 + 2 * sigma) * random() - sigma (or can be written as) mu = random() + (2 * random() - 1) * sigma
+            var mu = (1 + 2 * algorithmParameters.spread_factor) * generateRandomDouble(0, 1) - algorithmParameters.spread_factor;
+            if (point1 < point2) {
+                // if step is 0, then we have an infinite amount of values. Just return the double.
+                // otherwise, return the closest step to the value.
+                var intermediate = point1 + difference * mu;
+                return step > 0 ? Math.Floor(intermediate / step) * step : intermediate;
+            } else {
+                // if step is 0, then we have an infinite amount of values. Just return the double.
+                // otherwise, return the closest step to the value.
+                var intermediate = point2 + difference * mu;
+                return step > 0 ? Math.Floor(intermediate / step) * step : intermediate;
             }
-            var generator = randomGenerators[this.seed];
-            var modifier = generator.Next() % (end - start);
-            var result = start + modifier;
-            randomGenerators[this.seed] = generator;
-            return result;
         }
 
-        /// <summary>
-        /// Generates a random solution.
-        /// </summary>
-        /// <param name="DA">Grants access to the component's inputs and outputs</param>
-        /// <param name="solutionSet">Array of solutions obtained from GetSolutionSet()</param>
-        /// <param name="intervals">Array of intervals obtained from CollectIntervals()</param>
-        private void GenerateSolution(IGH_DataAccess DA, MorphoSolution[] solutionSet, Dictionary<string, MorphoInterval> intervals) {
-            Dictionary<string, double> outputs = new Dictionary<string, double>();
-            int seed = (int)DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1)).TotalSeconds % int.MaxValue;
+        private Dictionary<string, double> GenerateSolution(MorphoSolution[] solutionSet, Dictionary<string, MorphoInterval> intervals) {
+            var child = new Dictionary<string, double>();
+
             Random generator = new Random(seed);
-            int parent1 = -1, parent2 = -1;
+            int parent1 = -1, parent2 = -1; // a parent being -1 means that it doesn't exist.
             if (solutionSet.Length > 0)
             {
                 parent1 = generator.Next() % solutionSet.Length;
                 parent2 = generator.Next() % solutionSet.Length;
             }
 
-            // foreach (KeyValuePair<string, string> kv in schema)
-            foreach (KeyValuePair<string, MorphoInterval> interval in intervals)
+            // the amount of parents, ranges from 0 to 2.
+            int parentCount = ((parent1 != -1) ? 1 : 0) + ((parent2 != -1) ? 1 : 0);
+
+            // the clamp function to be used later on for breeding children from 2 parents
+            Func<double, double, double, double> clamp = delegate(double min, double max, double value) {
+                return Math.Max(min, Math.Min(max, value));
+            };
+
+            // iterate through each pair of {interval name , interval details} (start, end, step, etc.)
+            foreach (var parameter in intervals)
             {
-                string param_name = interval.Key;
-                // HUX
-                var variant = generateRandomInt(0, 3);
+                string paramName  = parameter.Key;
+                var paramInterval = parameter.Value;
+
                 var random_treshold = generateRandomDouble(0, 1);
-
-                if (!is_systematic || random_treshold < algorithmParameters.probability_mutation || parent1 == -1 || parent2 == -1)
-                {
-                    // generate if system is not systematic, if it mutates by chance or if there are not parents
-                    double point_on_scale;
-                    if (is_systematic)
-                    {
-                        // TODO fix ungeneric generation code
-                        point_on_scale = generateRandomDouble(intervals[param_name].start, intervals[param_name].end);
-                    }
-                    else
-                    {
-                        point_on_scale = generateRandomDouble(intervals[param_name].start, intervals[param_name].end);
-                    }
-                    outputs.Remove(param_name);
-                    outputs.Add(param_name, point_on_scale);
+                if (!is_systematic || random_treshold < algorithmParameters.probability_mutation || parentCount == 0) {
+                    // generate if system is not systematic, or if it mutates by chance, or if it does not possess 2 parents.
+                    child.Add(
+                        paramName,
+                        generateRandomDouble(paramInterval.start, paramInterval.end, paramInterval.step)
+                    );
                 }
-                else if (is_systematic)
-                {
-                    // only use the solution set if the generation is systematic
-                    if (variant == 0)
-                    {
-                        outputs.Remove(param_name);
-                        outputs.Add(param_name, solutionSet[parent1].values[param_name]);
-                    }
-                    else if (variant == 1)
-                    {
-                        outputs.Remove(param_name);
-                        outputs.Add(param_name, solutionSet[parent2].values[param_name]);
-                    }
-                    else if (variant == 2)
-                    {
-                        // crossover
-                        outputs.Remove(param_name);
-                        outputs.Add(param_name, (solutionSet[parent1].values[param_name] + solutionSet[parent2].values[param_name]) / 2);
+                else if (is_systematic) {       // use parents to derive solutions
+                    if (parentCount == 1) {     // mutant child
+                        var parent = solutionSet[Math.Max(parent1, parent2)];
+                        double mutation = 0;
+                        if (onCoinFlip()) {
+                            var sign = onCoinFlip() ? 1 : -1;
+                            mutation = sign * paramInterval.step;
+                        }
+                        child.Add(paramName, parent.values[paramName] + mutation);
+                    } else {                    // breed child
+                        if (parent1 == parent2) {
+                            child.Add(paramName, solutionSet[parent1].values[paramName]);
+                        } else {
+                            child.Add( paramName, clamp(
+                                paramInterval.start,
+                                paramInterval.end,
+                                uniformLine(solutionSet[parent1].values[paramName], solutionSet[parent2].values[paramName], paramInterval.step)
+                            ) );
+                        }
                     }
                 }
             }
 
-            // set the ouput parameters
-            double[] output_doubles = new double[outputs.Count];
-            string[] output_human = new string[outputs.Count];
-            var index = 0;
-            foreach (var outputPair in outputs)
-            {
-                output_doubles[index] = outputPair.Value;
-                output_human[index] = $"{outputPair.Key},{outputPair.Value}";
-                index++;
+            return child;
+        }
+
+        /// <summary> Deserializes and returns intervals from a set of JSON-encoded interval strings. </summary>
+        private Dictionary<string, MorphoInterval> CollectIntervals(List<MorphoInterval>  intervals) {
+            Dictionary<string, MorphoInterval> dictionary = new Dictionary<string, MorphoInterval>();
+            foreach (var interval in intervals) {
+                dictionary.Add(interval.name, interval);
             }
-            DA.SetDataList(0, output_doubles);
-            DA.SetDataList(1, output_human);
+            return dictionary;
         }
 
-        /// <summary>
-        /// Deserializes and returns intervals from a set of JSON-encoded interval strings.
-        /// </summary>
-        /// <param name="encodedIntervals"></param>
-        /// <returns></returns>
-        private Dictionary<string, MorphoInterval> CollectIntervals(List<string>  encodedIntervals) {
-            Dictionary<string, MorphoInterval> intervals = new Dictionary<string, MorphoInterval>();
-            // we associate each interval input with the source component of the intervals to fetch the nickname
-            for (int encodedIntervalIndex = 0; encodedIntervalIndex < encodedIntervals.Count; encodedIntervalIndex ++) {
-                MorphoInterval temp_interval = JsonConvert.DeserializeObject<MorphoInterval>(encodedIntervals[encodedIntervalIndex]);
-                intervals.Add(temp_interval.name, temp_interval);
-            }
-            return intervals;
-        }
-
-        private static void checkError(bool success)
+        /// <summary> Throws an exception with a message if the status flag passed in is false </summary>
+        private static void checkError(bool status, string message)
         {
-            if (!success)
-                throw new ParameterException();
-        }
-
-        private static void checkError(bool success, string message)
-        {
-            if (!success)
+            if (!status)
                 throw new ParameterException(message);
         }
 
+        /// <summary>
+        /// Returns a list of input values from a DataAccess slot
+        /// </summary>
         private static List<T> GetParameterList<T>(IGH_DataAccess DA, string fieldName)
         {
             List<T> data_items = new List<T>();
@@ -300,6 +270,9 @@ namespace morpho
             return data_items;
         }
 
+        /// <summary> 
+        /// Returns a single input values from a DataAccess slot
+        /// </summary>
         private static T GetParameter<T>(IGH_DataAccess DA, string fieldName)
         {
             T data_item = default;
@@ -307,62 +280,65 @@ namespace morpho
             return data_item;
         }
 
+        /// <summary> Retrieve a value from a parameter field. If it is not present, return defaultValue instead. </summary>
+        private static T GetParameter<T>(IGH_DataAccess DA, string fieldName, T defaultValue) {
+            T data_item = default;
+            if (DA.GetData(fieldName, ref data_item)) {
+                return data_item;
+            } else {
+                return defaultValue;
+            }
+        }
+
         protected override void SolveInstance(IGH_DataAccess DA)
         {
-            try
-            {
-                try {
-                    is_systematic = GetParameter<bool>(DA, "Is Systematic");
-                } catch (ParameterException) {
-                    // generator isn't systematic by default 
-                    is_systematic = false;
-                }
+            try {
+                
+                // Generator isn't systematic by default.
+                this.is_systematic = GetParameter(DA, fieldName: "Is Systematic", defaultValue: false); 
 
-                try {
-                    seed = (int)GetParameter<double>(DA, "Seed");
-                } catch (ParameterException) {
-                    // generator uses a random seed by default
-                }
+                // Use the current time as a seed if we don't get a seed value.
+                this.seed = (int)GetParameter<double>(DA, 
+                    fieldName: "Seed",
+                    defaultValue: (int)DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1)).TotalSeconds
+                );
+                
+                // if there are no parameters provided, set them to default.
+                this.algorithmParameters = GetParameter(DA, "Algorithm Parameters", new AlgorithmParameterSet());
 
-                try
-                {
-                    string parameterString = GetParameter<string>(DA, "Algorithm Parameters");
-                    algorithmParameters = JsonConvert.DeserializeObject<AlgorithmParameterSet>(parameterString);
-                }
-                catch
-                {
-                    // if there are no parameters provided, set them to default.
-                    algorithmParameters.Default();
-                }
+                /*
+                    Collect intervals, and categorize them as input variables to be passed into the fitness filters.
+                    Evaulate the expression tree collected from the fitness filter input.
+                    The fitness filter tree needs a map from variables to their category (input or output) to produce the right query.
+                    The final fitnessFilterString is passed into database calls to constraint the solution set.
+                */
+                var intervals = GetParameterList<MorphoInterval>(DA, "Intervals").ToDictionary(interval => interval.name, interval => interval);
+                var paramLookupTable = intervals.Select(interval => interval.Value.name).ToDictionary(name => name, name => ParamType.Input);
+                var fitnessFilter = GetParameter<FilterExpression>(DA, "Fitness Filters", new EmptyFilterExpression());
+                var fitnessFilterString = fitnessFilter.Eval(paramLookupTable);
+                var directoryParameters = GetParameter<DirectoryParameters>(DA, "Directory");
 
-                // TODO: this must accept a generic parameter with the interface FilterExpression
-                // we get the parameters needed to fetch the solution set from the local database
-                string fitnessFilterString = "";
-                try {
-                    fitnessFilterString = GetParameter<string>(DA, "Fitness Filters");
-                } catch (ParameterException) {
-                    // filters remain empty if they're missing. 
-                }
-
-                string directoryString = GetParameter<string>(DA, "Directory");
-                var directoryParameters = JsonConvert.DeserializeObject<DirectoryParameters>(directoryString);
+                Console.WriteLine($"{paramLookupTable.ToArray()} {fitnessFilter} {fitnessFilterString} {directoryParameters}");
 
                 DBOps ops = new DBOps(directoryParameters);
-
                 MorphoSolution[] solutionSet = ops.GetSolutions(directoryParameters.projectName, fitnessFilterString); //GetSolutionSet(fitnessFilterString, directoryParameters);
-                Console.WriteLine($"got {solutionSet.Count()} solutions");
+                Console.WriteLine($"got {solutionSet.Count()} solutions for the query {fitnessFilterString}");
 
-                // collect intervals from the input and dump them into a variable
-                var encodedIntervals = GetParameterList<string>(DA, "Intervals");
-                var intervals = CollectIntervals(encodedIntervals);
 
-                // collect iteration details and start the timer
+                /*
+                    StartTimer() starts a timer that re-executes this component every second.
+                    When the timer expires, setTimerExpired() is called, which checks the number of solutions in the database.
+                    If there are more solutions in the database than before, then an iteration has occurred.
+                    If so, the component is expired and recomputed.
+                */
                 if (!iterationStats.expired)
                 {
                     iterationStats.directory = directoryParameters.directory;
                     iterationStats.projectName = directoryParameters.projectName;
                     int tempIterationLimit = GetParameter<int>(DA, "Iteration Limit");
                     iterationStats.iterationLimit = ops.GetSolutionCount(directoryParameters.projectName) + (long)tempIterationLimit;
+
+                    // we reset this to false only when the component's toggle is reset. makes sure that new iterations don't start on their own.
                     iterationStats.expired = true;
                     StartTimer();
                 }
@@ -373,7 +349,16 @@ namespace morpho
                 Dictionary<string, double> outputs = new Dictionary<string, double>();
                 if (initiateComputation && iterationStats.iterationCount <= iterationStats.iterationLimit)
                 {
-                    GenerateSolution(DA, solutionSet, intervals);
+                    Dictionary<string, double> child;
+                    do {
+                        child = GenerateSolution(solutionSet, intervals);
+                    } while (ops.CheckIfSolutionExists(directoryParameters.projectName, child));
+
+                    // set the ouput parameters
+                    var output_doubles  = child.Select(parameter => parameter.Value).ToArray();
+                    var output_string   = child.Select(parameter => $"{parameter.Key},{parameter.Value}").ToArray();
+                    DA.SetDataList(0, output_doubles);
+                    DA.SetDataList(1, output_string);
                 }
                 else
                 {

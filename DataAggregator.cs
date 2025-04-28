@@ -1,9 +1,8 @@
 using System;
 using System.Collections.Generic;
-using Newtonsoft.Json;
-
+using System.Linq;
 using Grasshopper.Kernel;
-using System.Drawing;
+using Newtonsoft.Json;
 
 namespace morpho
 {
@@ -13,6 +12,10 @@ namespace morpho
         public Dictionary<string, double> outputs;
         public Dictionary<string, string> files; // pairs of <file tag, file name>
         public List<NamedBitmap> images;
+
+        public override string ToString() {
+            return JsonConvert.SerializeObject(this);
+        }
     }
 
     public class DataAggregator : GH_Component
@@ -72,6 +75,16 @@ namespace morpho
         protected override void SolveInstance(IGH_DataAccess DA)
         {
             try {
+                // returns false if any of the input sources to an input is empty
+                Func<IGH_Param, bool> isFulfilled = (IGH_Param param) => param.Sources.Select(src => src.VolatileDataCount > 0).Aggregate((acc, incoming) => acc & incoming);
+
+                // if any of the input sources is not fulfilled, the component does not execute
+                if (!isFulfilled(this.Params.Input[0]) || !isFulfilled(this.Params.Input[1]) || !isFulfilled(this.Params.Input[2]) || !isFulfilled(this.Params.Input[3])) {
+                    AddRuntimeMessage(GH_RuntimeMessageLevel.Remark, "One of the input sources did not fire.");
+                    return;
+                }
+
+
                 MorphoAggregatedData result = new MorphoAggregatedData();
                 var input_csv = GetParameterList<string>(DA, "Inputs");
                 // if we get no inputs, we consider it empty (kinda obvious but GetDataList does not error when inputs are empty.)

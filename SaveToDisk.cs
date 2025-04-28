@@ -2,6 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Drawing.Imaging;
 using System.IO;
+using System.Linq;
+using System.Text;
+using System.Windows.Forms.VisualStyles;
 using Grasshopper.Kernel;
 using Newtonsoft.Json;
 
@@ -41,7 +44,7 @@ namespace morpho
             // All parameters must have the correct access type. If you want 
             // to import lists or trees of values, modify the ParamAccess flag.
             pManager.AddGenericParameter("Aggregated Data", "Aggregated Data", "Aggregated data to be saved.", GH_ParamAccess.item);
-            pManager.AddTextParameter("Directory", "Directory", "Directory to save the data under.", GH_ParamAccess.item);
+            pManager.AddGenericParameter("Directory", "Directory", "Directory to save the data under.", GH_ParamAccess.item);
             pManager.AddBooleanParameter("Enabled", "Enabled", "Enables the Component", GH_ParamAccess.item);
         }
 
@@ -104,6 +107,41 @@ namespace morpho
             return filePath;
         }
 
+        protected static void SaveToCSV(string filename, MorphoAggregatedData solution) {
+            var fd = new FileStream(filename, FileMode.OpenOrCreate, FileAccess.Read);
+            var fileLength = fd.Length;
+            fd.Close();
+
+            var file = new StreamWriter(filename, append: true);
+
+            // Append a header if the file is empty
+            if (fileLength == 0) {
+                var headerStringBuilder = new StringBuilder();
+                foreach (var input in solution.inputs) {
+                    headerStringBuilder.Append($"{input.Key},");
+                }
+                foreach (var output in solution.outputs) {
+                    headerStringBuilder.Append($"{output.Key},");
+                }
+                headerStringBuilder.Remove(headerStringBuilder.Length - 1, 1);
+                headerStringBuilder.AppendLine();
+                file.Write(headerStringBuilder.ToString());
+            }
+
+            // Append the solution to the end of the file
+            var dataStringBuilder = new StringBuilder();
+            foreach (var input in solution.inputs) {
+                dataStringBuilder.Append($"{input.Value},");
+            }
+            foreach (var output in solution.outputs) {
+                dataStringBuilder.Append($"{output.Value},");
+            }
+            dataStringBuilder.Remove(dataStringBuilder.Length - 1, 1);
+            dataStringBuilder.AppendLine();
+            file.Write(dataStringBuilder.ToString());
+            file.Close();
+        }
+
         /// <summary>
         /// This is the method that actually does the work.
         /// </summary>
@@ -113,10 +151,8 @@ namespace morpho
         {
             try {
                 MorphoAggregatedData solution = GetParameter<MorphoAggregatedData>(DA, 0);
-                string directoryString = GetParameter<string>(DA, 1);
+                var directoryObject = GetParameter<DirectoryParameters>(DA, 1);
                 bool enabled = GetParameter<bool>(DA, 2);
-
-                var directoryObject = JsonConvert.DeserializeObject<DirectoryParameters>(directoryString);
 
                 var projectName = System.Security.SecurityElement.Escape(directoryObject.projectName);
 
@@ -141,6 +177,8 @@ namespace morpho
                     // if anything turns null, return without failing
                     return;
                 }
+
+                SaveToCSV(directoryObject.directory + "/solutions.csv", solution);
 
                 DBOps db = new DBOps(directoryObject);
                 

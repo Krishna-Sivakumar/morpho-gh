@@ -4,6 +4,9 @@ using Newtonsoft.Json;
 using System;
 using System.Data;
 using System.IO;
+using System.Linq;
+using Microsoft.VisualBasic;
+using Grasshopper.Kernel;
 
 namespace morpho {
 
@@ -114,7 +117,7 @@ namespace morpho {
         /// <param name="solution">The solution to be processed.</param>
         /// <param name="assets">Pairs of (tag, filepath) to be processed.</param>
         /// <returns>Input and Output MetadataField collections as a tuple, in that order.</returns>
-        private MetadataPair SerializeSolutionToMetadata(SaveToDisk.SerializableSolution solution, Dictionary<string, string> assets) {
+        private MetadataPair SerializeSolutionToMetadata(SaveToPopulation.SerializableSolution solution, Dictionary<string, string> assets) {
             List<MetadataField> input = new List<MetadataField>();
             List<MetadataField> output = new List<MetadataField>();
             List<AssetField> assetFields = new List<AssetField>();
@@ -144,7 +147,7 @@ namespace morpho {
         ///  Inserts a table layout into the local database.
         /// </summary>
         /// <returns>The number of rows inserted; should be 1.</returns>
-        public int InsertTableLayout(SaveToDisk.SerializableSolution solution, Dictionary<string, string> assets, string projectName) {
+        public int InsertTableLayout(SaveToPopulation.SerializableSolution solution, Dictionary<string, string> assets, string projectName) {
             string query = "INSERT INTO project(creation_date, project_name, variable_metadata, output_metadata, assets, deleted) VALUES ($creationDate, $projectName, $variableMetadata, $outputMetadata, $assets, False)";
             var creationDate = DateTime.Today;
             var metadataTuple = SerializeSolutionToMetadata(solution, assets);
@@ -177,7 +180,7 @@ namespace morpho {
         /// </summary>
         /// <param name="solution">The serializable solution to be inserted</param>
         /// <returns>Number of rows inserted; should be 1.</returns>
-        public long InsertSolution(SaveToDisk.SerializableSolution solution, string projectName) {
+        public long InsertSolution(SaveToPopulation.SerializableSolution solution, string projectName) {
             // should insert assets as well, in a transaction
             long insertedSolutionId = -1;
             string insertSolution = "INSERT INTO solution(parameters, output_parameters, project_name) VALUES ($parameters, $outputParameters, $projectName) RETURNING id;";
@@ -257,12 +260,14 @@ namespace morpho {
         /// <summary>
         /// Gets a mapping from parameter to category of parameter (input / output)
         /// </summary>
-        private Dictionary<string, ParamType> GetSchema() {
+        private Dictionary<string, ParamType> GetSchema(string projectName) {
             // TODO stub; fill in later
             var schema = new Dictionary<string, ParamType>();
 
             using (var DBConnection = new SQLiteConnection(connectionBuilder.ToString()))
             {
+                DBConnection.Open();
+
                 var query = "SELECT parameters, output_parameters FROM solution WHERE project_name=$projectName ORDER BY id DESC LIMIT 1";
                 var command = DBConnection.CreateCommand();
                 command.CommandText = query;
@@ -271,7 +276,7 @@ namespace morpho {
                     while (reader.Read()) {
                         // inspect the contents of the first 
                         Dictionary<string, double> parameters = JsonConvert.DeserializeObject<Dictionary<string, double>>(reader.GetString(0));
-                        Dictionary<string, double> outputParameters = JsonConvert.DeserializeObject<Dictionary<string, double>>(reader.GetString(0));
+                        Dictionary<string, double> outputParameters = JsonConvert.DeserializeObject<Dictionary<string, double>>(reader.GetString(1));
                         foreach (var pair in parameters) {
                             schema.Add(pair.Key, ParamType.Input);
                         }
@@ -286,19 +291,31 @@ namespace morpho {
         }
 
         /// <summary>
+        /// Checks if a particular solution exists in the database.
+        /// </summary>
+        /// <param name="projectName">Name of the project to query against</param>
+        /// <param name="input">The set of inputs variables to check the existence of</param>
+        /// <returns></returns>
+        public bool CheckIfSolutionExists(string projectName, Dictionary<string, double> input) {
+            string[] conditions = input.Select(pair => $"json_extract(parameters, \'$.{pair.Key}\') = {pair.Value}").ToArray();
+            var condition = string.Join(" AND ", conditions);
+            var solutions = GetSolutions(projectName, condition);
+            return solutions.Length > 0;
+        }
+
+        /// <summary>
         /// Gets a list of solution associated with a projected and constrained by a set of fitnessConditions.
         /// </summary>
         /// <param name="projectName">Name of the project to query against.</param>
         /// <param name="fitnessConditions">Fitness conditions to constrain solution by. Leave empty to get all solutions associated with the project.</param>
         /// <returns></returns>
-        // TODO: this must accept a parameter of type FilterExpression instead of string, and call Eval() on it after getting the schema out of the table.
         public MorphoSolution[] GetSolutions(string projectName, string fitnessConditions) {
             // if GetSchema() returns a dictionary with nothing i.e. there are no records yet, terminate the query and return nothing.
             List<MorphoSolution> solutions = new List<MorphoSolution>();
-            var schema = GetSchema();
+            var schema = GetSchema(projectName);
             if (schema.Count == 0)
             {
-                return solutions;
+                return solutions.ToArray();
             }
 
             // 1. make a connection to directory/solutions.db
