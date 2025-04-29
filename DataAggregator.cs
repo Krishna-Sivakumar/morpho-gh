@@ -113,12 +113,15 @@ namespace morpho
                 // we ingest images here
                 // we capture viewports to a bitmap 
                 // refer to https://discourse.mcneel.com/t/capture-viewport-as-image-in-cache/137791/2 for implementation
-                List<NamedBitmap> namedBitmaps;
                 try {
-                    namedBitmaps = GetParameterList<NamedBitmap>(DA, "Images");
+                    var viewportDetails = GetParameterList<ViewportDetails>(DA, "Images");
                     result.images = new List<NamedBitmap>();
-                    foreach (var nb in namedBitmaps) {
-                        result.images.Add(nb);
+                    foreach (var viewportDetail in viewportDetails) {
+                        var namedBitmap = new NamedBitmap{
+                            bitmap = viewportDetail.viewport.CaptureToBitmap(),
+                            name = viewportDetail.name
+                        };
+                        result.images.Add(namedBitmap);
                     }
                 } catch (ParameterException) {
                     // do nothing if there are no Image Capture components provided.

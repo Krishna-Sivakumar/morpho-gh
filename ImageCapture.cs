@@ -9,6 +9,15 @@ using System.Windows.Forms;
 namespace morpho
 {
 
+    public struct ViewportDetails {
+        public RhinoView viewport;
+        public string name;
+
+        public override string ToString() {
+            return $"{viewport} {name}";
+        }
+    }
+
     public struct NamedBitmap {
         public Bitmap bitmap;
         public string name;
@@ -114,12 +123,12 @@ namespace morpho
                 return;
             }
 
-            NamedBitmap namedBitmap = new NamedBitmap{
-                bitmap =  this.viewport.CaptureToBitmap(),
+            ViewportDetails vp = new ViewportDetails{
+                viewport = this.viewport,
                 name = tag
             };
 
-            DA.SetData(0, namedBitmap);
+            DA.SetData(0, vp);
         }
 
         /// <summary>
