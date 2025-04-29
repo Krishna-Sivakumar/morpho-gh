@@ -175,13 +175,11 @@ namespace morpho
             if (point1 < point2) {
                 // if step is 0, then we have an infinite amount of values. Just return the double.
                 // otherwise, return the closest step to the value.
-                var intermediate = point1 + difference * mu;
-                return step > 0 ? Math.Floor(intermediate / step) * step : intermediate;
+                return point1 + difference * mu;
             } else {
                 // if step is 0, then we have an infinite amount of values. Just return the double.
                 // otherwise, return the closest step to the value.
-                var intermediate = point2 + difference * mu;
-                return step > 0 ? Math.Floor(intermediate / step) * step : intermediate;
+                return point2 + difference * mu;
             }
         }
 
@@ -200,8 +198,11 @@ namespace morpho
             int parentCount = ((parent1 != -1) ? 1 : 0) + ((parent2 != -1) ? 1 : 0);
 
             // the clamp function to be used later on for breeding children from 2 parents
-            Func<double, double, double, double> clamp = delegate(double min, double max, double value) {
-                return Math.Max(min, Math.Min(max, value));
+            Func<double, double, double, double, double> clamp = delegate(double min, double max, double step, double value) {
+                // stratify the steps
+                var clampedValue = Math.Max(min, Math.Min(max, value));
+                var steps = Math.Floor(clampedValue / step);
+                return steps * step;
             };
 
             // iterate through each pair of {interval name , interval details} (start, end, step, etc.)
@@ -215,7 +216,12 @@ namespace morpho
                     // generate if system is not systematic, or if it mutates by chance, or if it does not possess 2 parents.
                     child.Add(
                         paramName,
-                        generateRandomDouble(paramInterval.start, paramInterval.end, paramInterval.step)
+                        clamp(
+                            paramInterval.start,
+                            paramInterval.end,
+                            paramInterval.step,
+                            generateRandomDouble(paramInterval.start, paramInterval.end, paramInterval.step)
+                        )
                     );
                 }
                 else if (is_systematic) {       // use parents to derive solutions
@@ -226,7 +232,12 @@ namespace morpho
                             var sign = onCoinFlip() ? 1 : -1;
                             mutation = sign * paramInterval.step;
                         }
-                        child.Add(paramName, parent.values[paramName] + mutation);
+                        child.Add(paramName, clamp(
+                            paramInterval.start,
+                            paramInterval.end,
+                            paramInterval.step,
+                            parent.values[paramName] + mutation
+                        ));
                     } else {                    // breed child
                         if (parent1 == parent2) {
                             child.Add(paramName, solutionSet[parent1].values[paramName]);
@@ -234,6 +245,7 @@ namespace morpho
                             child.Add( paramName, clamp(
                                 paramInterval.start,
                                 paramInterval.end,
+                                paramInterval.step,
                                 uniformLine(solutionSet[parent1].values[paramName], solutionSet[parent2].values[paramName], paramInterval.step)
                             ) );
                         }
