@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Grasshopper.Kernel;
+using Grasshopper.Kernel.Data;
+using Grasshopper.Kernel.Types;
 using Newtonsoft.Json;
 
 namespace morpho
@@ -45,14 +47,14 @@ namespace morpho
             return result;
         }
 
-        protected override void RegisterInputParams(GH_Component.GH_InputParamManager pManager)
+        protected override void RegisterInputParams(GH_InputParamManager pManager)
         {
             pManager.AddTextParameter("Inputs", "Inputs", "Set of inputs. Connect output from the Gene Generator here directly.", GH_ParamAccess.list);
-            pManager.AddNumberParameter("Outputs", "Outputs", "Set outputs. Set up a named Data component to name each output appropriately.", GH_ParamAccess.list);
-            pManager.AddGenericParameter("Images", "Images", "Image files generated during a run.", GH_ParamAccess.list);
-            pManager.AddTextParameter("Files", "Files", "Names of analysis files generated", GH_ParamAccess.list);
-            Params.Input[2].Optional = true;
-            Params.Input[3].Optional = true;
+            pManager.AddNumberParameter("Outputs", "Outputs", "Set outputs. Set up a named Data component to name each output appropriately.", GH_ParamAccess.tree);
+            var imgIndex = pManager.AddGenericParameter("Images", "Images", "Image files generated during a run.", GH_ParamAccess.list);
+            var fileIndex = pManager.AddTextParameter("Files", "Files", "Names of analysis files generated", GH_ParamAccess.list);
+            pManager[imgIndex].Optional = true;
+            pManager[fileIndex].Optional = true;
         }
 
         protected override void RegisterOutputParams(GH_OutputParamManager pManager)
@@ -72,11 +74,25 @@ namespace morpho
             return data_items;
         }
 
+        private static GH_Structure<T> GetParameterTree<T>(IGH_DataAccess DA, string fieldName) where T: IGH_Goo {
+            GH_Structure<T> tree;
+            checkError(DA.GetDataTree(fieldName, out tree), $"Missing parameter {fieldName}");
+            return tree;
+        }
+
+        private static bool IsFulfilled(IGH_Param param) {
+            if (param.SourceCount > 0) {
+                return param.Sources.Select(src => src.VolatileDataCount > 0).Aggregate((acc, incoming) => acc & incoming);
+            } else {
+                return true;
+            }
+        }
+
         protected override void SolveInstance(IGH_DataAccess DA)
         {
             try {
                 // returns false if any of the input sources to an input is empty
-                Func<IGH_Param, bool> isFulfilled = (IGH_Param param) => param.Sources.Select(src => src.VolatileDataCount > 0).Aggregate((acc, incoming) => acc & incoming);
+                Func<IGH_Param, bool> isFulfilled = (IGH_Param param) => IsFulfilled(param);
 
                 // if any of the input sources is not fulfilled, the component does not execute
                 if (!isFulfilled(this.Params.Input[0]) || !isFulfilled(this.Params.Input[1]) || !isFulfilled(this.Params.Input[2]) || !isFulfilled(this.Params.Input[3])) {
@@ -99,13 +115,14 @@ namespace morpho
                 }
 
                 result.outputs = new Dictionary<string, double>();
-                var outputList = GetParameterList<double>(DA, "Outputs");
+                var outputTree = GetParameterTree<GH_Number>(DA, "Outputs");
+                outputTree.Flatten();
                 int sourceCounter = 0;
-                foreach (double outputValue in outputList)
+                foreach(var outputValue in outputTree.ToList())
                 {
                     result.outputs.Add(
                         Params.Input[1].Sources[sourceCounter].NickName,
-                        outputValue
+                        outputValue.Value
                     );
                     sourceCounter++;
                 }
@@ -130,8 +147,8 @@ namespace morpho
                     throw new ParameterException("One of the inputs is not an Image Capture component.");
                 }
 
+                result.files = new Dictionary<string, string>();
                 try {
-                    result.files = new Dictionary<string, string>();
                     var filesList = GetParameterList<string>(DA, "Files");
                     sourceCounter = 0;
                     foreach (string filename in filesList)
@@ -142,16 +159,14 @@ namespace morpho
                         );
                         sourceCounter++;
                     }
-                } catch (ParameterException) {
-                    // do nothing if there are no file names mentioned
+                } catch (Exception) {
+                    // do nothing if there's an exception here
                 }
 
                 DA.SetData(0, result);
             } catch (ParameterException e) {
                 AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, e.Message);
-            } catch (Exception e) {
-                AddRuntimeMessage(GH_RuntimeMessageLevel.Error, e.Message);
-            }
+            } 
         }
 
         public override GH_Exposure Exposure => GH_Exposure.primary;

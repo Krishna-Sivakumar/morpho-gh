@@ -1,11 +1,10 @@
 using System;
-using System.Timers;
 using Newtonsoft.Json;
 
 using Grasshopper.Kernel;
-using Rhino;
 using System.Collections.Generic;
-using System.Linq;
+using Grasshopper.Kernel.Special;
+using Grasshopper.GUI.Base;
 
 namespace morpho
 {
@@ -13,8 +12,8 @@ namespace morpho
 	public struct MorphoInterval
 	{
 		public string name;
-		public double start;
-		public double end;
+		public decimal start;
+		public decimal end;
 		public bool is_constant;
 		public double step;
 
@@ -22,8 +21,35 @@ namespace morpho
         {
 			return JsonConvert.SerializeObject(this);
         }
+
+		public static MorphoInterval FromSlider(GH_NumberSlider slider) {
+			return new MorphoInterval{
+				name = slider.NickName,
+				start = slider.Slider.Minimum,
+				end = slider.Slider.Maximum,
+				is_constant = slider.Slider.Maximum == slider.Slider.Minimum,
+				step = slider.Slider.Type == GH_SliderAccuracy.Integer ? 1 :  Math.Pow(10, -slider.Slider.DecimalPlaces),
+			};
+		}
+
+		public static List<MorphoInterval> CollectIntervals(IGH_Param param) {
+			var results = new List<MorphoInterval>();
+			if (param.SourceCount == 0 || param == null) {
+				throw new ParameterException($"Missing parameter {param.Name}");
+			}
+			foreach (var source in param.Sources) {
+				if (source.GetType() != typeof(GH_NumberSlider)) {
+					throw new ParameterException($"One of the parameters to 'Intervals' is not a number slider or a gene pool.");
+				}
+				results.Add(
+					FromSlider((GH_NumberSlider)source)
+				);
+			}
+			return results;
+		}
 	}
 
+	/*
 	public class Interval : GH_Component
 	{
 
@@ -308,5 +334,5 @@ namespace morpho
 		/// </summary>
 		public override Guid ComponentGuid => new Guid("efd400f2-5e07-40c6-889e-7302f0841afa");
 	}
-
+	*/
 }

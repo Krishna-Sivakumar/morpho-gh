@@ -164,7 +164,7 @@ namespace morpho
             "Morpho", "Fitness Functions")
         {
             this.filterOperator = FilterOpType.GreaterThan;
-            this.NickName = FilterOpType.GreaterThan.ToString();
+            this.NickName = FilterEnumResolution.ResolveOp(FilterOpType.GreaterThan);
         }
 
         public override void
@@ -246,7 +246,7 @@ namespace morpho
         /// new tabs/panels will automatically be created.
         /// </summary>
         public FilterConjuction()
-          : base("Filter Conjunction", "Filter Conjuction",
+          : base("Filter AND", "Filter AND",
             "Joins two or more fitness filters with a binary AND",
             "Morpho", "Fitness Functions")
         {
@@ -320,7 +320,7 @@ namespace morpho
         /// new tabs/panels will automatically be created.
         /// </summary>
         public FilterDisjunction()
-          : base("Filter Disjunction", "Filter Disjunction",
+          : base("Filter OR", "Filter OR",
             "Joins two or more fitness filters with a boolean OR",
             "Morpho", "Fitness Functions")
         {

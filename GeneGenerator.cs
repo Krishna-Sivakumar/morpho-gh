@@ -154,7 +154,7 @@ namespace morpho
             return generateRandomDouble(0, 1) < 0.5;
         }
 
-        private double generateRandomDouble(double start, double end, double step = 0)
+        private double generateRandomDouble(decimal start, decimal end, double step = 0)
         {
             // random generators are preserved through runs
             if (!randomGenerators.ContainsKey(this.seed))
@@ -163,9 +163,9 @@ namespace morpho
             }
             var generator = randomGenerators[this.seed];
             var modifier = generator.NextDouble();
-            var result = start + (end - start) * modifier;
+            var result = start + (end - start) * (decimal)modifier;
             randomGenerators[this.seed] = generator;
-            return result;
+            return (double)result;
         }
 
         private double uniformLine(double point1, double point2, double step) {
@@ -198,9 +198,9 @@ namespace morpho
             int parentCount = ((parent1 != -1) ? 1 : 0) + ((parent2 != -1) ? 1 : 0);
 
             // the clamp function to be used later on for breeding children from 2 parents
-            Func<double, double, double, double, double> clamp = delegate(double min, double max, double step, double value) {
+            Func<decimal, decimal, double, double, double> clamp = delegate(decimal min, decimal max, double step, double value) {
                 // stratify the steps
-                var clampedValue = Math.Max(min, Math.Min(max, value));
+                var clampedValue = Math.Max((double)min, Math.Min((double)max, value));
                 var steps = Math.Floor(clampedValue / step);
                 return steps * step;
             };
@@ -213,6 +213,7 @@ namespace morpho
 
                 var random_treshold = generateRandomDouble(0, 1);
                 if (!is_systematic || random_treshold < algorithmParameters.probability_mutation || parentCount == 0) {
+                    // Debugging: Console.WriteLine($"randomizing {paramName}");
                     // generate if system is not systematic, or if it mutates by chance, or if it does not possess 2 parents.
                     child.Add(
                         paramName,
@@ -226,6 +227,7 @@ namespace morpho
                 }
                 else if (is_systematic) {       // use parents to derive solutions
                     if (parentCount == 1) {     // mutant child
+                        // Debugging: Console.WriteLine($"mutating {paramName}");
                         var parent = solutionSet[Math.Max(parent1, parent2)];
                         double mutation = 0;
                         if (onCoinFlip()) {
@@ -240,9 +242,11 @@ namespace morpho
                         ));
                     } else {                    // breed child
                         if (parent1 == parent2) {
+                            // Debugging: Console.WriteLine($"breeding {paramName}; but same parent.");
                             child.Add(paramName, solutionSet[parent1].values[paramName]);
                         } else {
-                            child.Add( paramName, clamp(
+                            // Debugging: Console.WriteLine($"breeding {paramName}");
+                            child.Add(paramName, clamp(
                                 paramInterval.start,
                                 paramInterval.end,
                                 paramInterval.step,
@@ -253,6 +257,22 @@ namespace morpho
                 }
             }
 
+            /* Debugging
+            if (parentCount == 2) {
+                foreach(var pair in child) {
+                    Console.Write(pair + " ");
+                }
+                Console.Write("from ");
+                foreach(var pair in solutionSet[parent1].values) {
+                    Console.Write(pair + " ");
+                }
+                Console.Write("& ");
+                foreach(var pair in solutionSet[parent2].values) {
+                    Console.Write(pair + " ");
+                }
+                Console.WriteLine();
+            }
+            */
             return child;
         }
 
@@ -272,14 +292,13 @@ namespace morpho
                 throw new ParameterException(message);
         }
 
-        /// <summary>
-        /// Returns a list of input values from a DataAccess slot
-        /// </summary>
-        private static List<T> GetParameterList<T>(IGH_DataAccess DA, string fieldName)
-        {
-            List<T> data_items = new List<T>();
-            checkError(DA.GetDataList(fieldName, data_items), $"Missing parameter {fieldName}");
-            return data_items;
+        private IGH_Param GetInputParam(string name) {
+            foreach (var param in Params.Input) {
+                if (param.Name == name) {
+                    return param;
+                }
+            }
+            return null;
         }
 
         /// <summary> 
@@ -324,13 +343,13 @@ namespace morpho
                     The fitness filter tree needs a map from variables to their category (input or output) to produce the right query.
                     The final fitnessFilterString is passed into database calls to constraint the solution set.
                 */
-                var intervals = GetParameterList<MorphoInterval>(DA, "Intervals").ToDictionary(interval => interval.name, interval => interval);
+                Console.WriteLine(MorphoInterval.CollectIntervals(GetInputParam("Intervals"))[0]);
+                var intervals = MorphoInterval.CollectIntervals(GetInputParam("Intervals")).ToDictionary(interval => interval.name, interval => interval);
                 var paramLookupTable = intervals.Select(interval => interval.Value.name).ToDictionary(name => name, name => ParamType.Input);
                 var fitnessFilter = GetParameter<FilterExpression>(DA, "Fitness Filters", new EmptyFilterExpression());
                 var fitnessFilterString = fitnessFilter.Eval(paramLookupTable);
                 var directoryParameters = GetParameter<DirectoryParameters>(DA, "Directory");
 
-                Console.WriteLine($"{paramLookupTable.ToArray()} {fitnessFilter} {fitnessFilterString} {directoryParameters}");
 
                 DBOps ops = new DBOps(directoryParameters);
                 MorphoSolution[] solutionSet = ops.GetSolutions(directoryParameters.projectName, fitnessFilterString); //GetSolutionSet(fitnessFilterString, directoryParameters);
