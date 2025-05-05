@@ -114,17 +114,29 @@ namespace morpho
                     throw new Exception("Input Parsing failed. Is it connected to the GeneGenerator?");
                 }
 
+                /*
+                    Iterating through each source of the output to collect data.
+                    We do this as the output parameter can present as a tree, but we will still need to collect nicknames.
+                    The source nicknames cannot be correlated to the tree based on the order anymore, 
+                    so we'll have to visit each component's volatile data parameter to collect data.
+                */
                 result.outputs = new Dictionary<string, double>();
-                var outputTree = GetParameterTree<GH_Number>(DA, "Outputs");
-                outputTree.Flatten();
-                int sourceCounter = 0;
-                foreach(var outputValue in outputTree.ToList())
-                {
-                    result.outputs.Add(
-                        Params.Input[1].Sources[sourceCounter].NickName,
-                        outputValue.Value
-                    );
-                    sourceCounter++;
+                foreach (var source in Params.Input[1].Sources) {
+                    double outputValue;
+                    int possibleIntValue;
+
+                    var volatileData = source.VolatileData.AllData(false).ToArray();
+                    if (volatileData.Length > 1) {
+                        throw new ParameterException($"Output {source.NickName} must be a single number.");
+                    }
+                    if (!volatileData[0].CastTo(out outputValue)) {
+                        if (!volatileData[0].CastTo(out possibleIntValue)) {
+                            throw new ParameterException($"Output {source.NickName} must be a number.");
+                        } else {
+                            outputValue = possibleIntValue;
+                        }
+                    }
+                    result.outputs.Add(source.NickName, outputValue);
                 }
 
                 // we ingest images here
@@ -134,19 +146,21 @@ namespace morpho
                     var viewportDetails = GetParameterList<ViewportDetails>(DA, "Images");
                     result.images = new List<NamedBitmap>();
                     foreach (var viewportDetail in viewportDetails) {
+                        if (viewportDetail.viewport is null) {
+                            throw new ParameterException();
+                        }
                         var namedBitmap = new NamedBitmap{
                             bitmap = viewportDetail.viewport.CaptureToBitmap(),
                             name = viewportDetail.name
                         };
                         result.images.Add(namedBitmap);
                     }
-                } catch (ParameterException) {
-                    // do nothing if there are no Image Capture components provided.
                 } catch (Exception e) {
                     Console.WriteLine(e);
-                    throw new ParameterException("One of the inputs is not an Image Capture component.");
+                    throw new ParameterException($"One of the inputs is unset or is not an ImageCapture component.");
                 }
 
+                var sourceCounter = 0;
                 result.files = new Dictionary<string, string>();
                 try {
                     var filesList = GetParameterList<string>(DA, "Files");
