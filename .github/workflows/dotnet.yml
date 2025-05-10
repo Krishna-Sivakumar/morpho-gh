@@ -29,6 +29,8 @@ jobs:
 
       - name: Create a release and upload build artefacts to it
         uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: {{ github.token }}
         with:
           prerelease: false
           name: Morpho Plugin v${{steps.vars.outputs.sha_short}}
