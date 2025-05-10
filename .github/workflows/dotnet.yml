@@ -18,3 +18,23 @@ jobs:
       # You can test your matrix by printing the current dotnet version
       - name: Build Grasshopper Assembly
         run: dotnet build
+      - name: Zip releases into different packages
+        run: 'cd bin/Debug/net48/; zip -r morpho-net48.zip .; cd ../../..; cd bin/Debug/net7.0/; zip -r morpho-net7.0.zip .; cd ../../..; cd bin/Debug/net7.0-windows/; zip -r morpho-net7.0-windows.zip .; cd ../../..;'
+      - name: Set sha head
+        id: vars
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+      - name: Upload net48 artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: morpho-${{steps.vars.outputs.sha_short}}-net48.zip
+          path: bin/Debug/net48/morpho-net48.zip
+      - name: Upload net7.0 artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: morpho-${{steps.vars.outputs.sha_short}}-net7.0.zip
+          path: bin/Debug/net7.0/morpho-net7.0.zip
+      - name: Upload net7.0-windows artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: morpho-${{steps.vars.outputs.sha_short}}-net7.0-windows.zip
+          path: bin/Debug/net7.0-windows/morpho-net7.0-windows.zip
