@@ -1,12 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
-using System.Linq;
 using System.Text;
-using System.Windows.Forms.VisualStyles;
 using Grasshopper.Kernel;
-using Newtonsoft.Json;
 
 namespace morpho
 {
@@ -230,7 +228,13 @@ namespace morpho
         /// You can add image files to your project resources and access them like this:
         /// return Resources.IconForThisComponent;
         /// </summary>
-        protected override System.Drawing.Bitmap Icon => null;
+        protected override Bitmap Icon {
+            get {
+                var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+                var stream = assembly.GetManifestResourceStream("ghplugin.icons.save_to_population.png");
+                return new Bitmap(stream);
+            }
+        }
 
         /// <summary>
         /// Each component must have a unique Guid to identify it. 

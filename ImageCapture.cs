@@ -38,7 +38,7 @@ namespace morpho
         /// </summary>
         public ImageCapture()
           : base("Image Capture", "Image Capture",
-            "Selects a viewport from the activate Rhino3D document and captures it a bitmap image.",
+            "Selects a viewport from the active Rhino3D document and captures it into a bitmap image.",
             "Morpho", "Genetic Search")
         {
         }
@@ -145,7 +145,21 @@ namespace morpho
         /// You can add image files to your project resources and access them like this:
         /// return Resources.IconForThisComponent;
         /// </summary>
-        protected override Bitmap Icon => null;
+        protected override Bitmap Icon {
+            get {
+                var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+                if (false) {
+                    // use this when you need to list out the names of embedded resources
+                    string[] result = assembly.GetManifestResourceNames();
+                    Console.WriteLine("manifest resources:");
+                    foreach (var res in result) {
+                        Console.WriteLine(res);
+                    }
+                }
+                var stream = assembly.GetManifestResourceStream("ghplugin.icons.image_capture.png");
+                return new Bitmap(stream);
+            }
+        }
 
         /// <summary>
         /// Each component must have a unique Guid to identify it. 

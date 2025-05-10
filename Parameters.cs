@@ -1,6 +1,5 @@
 using System;
-using Newtonsoft.Json;
-
+using System.Drawing;
 using Grasshopper.Kernel;
 
 public class AlgorithmParameterSet
@@ -64,7 +63,21 @@ namespace morpho {
         }
 
         public override GH_Exposure Exposure => GH_Exposure.primary;
-        protected override System.Drawing.Bitmap Icon => null;
+        protected override Bitmap Icon {
+            get {
+                var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+                if (false) {
+                    // use this when you need to list out the names of embedded resources
+                    string[] result = assembly.GetManifestResourceNames();
+                    Console.WriteLine("manifest resources:");
+                    foreach (var res in result) {
+                        Console.WriteLine(res);
+                    }
+                }
+                var stream = assembly.GetManifestResourceStream("ghplugin.icons.dna.png");
+                return new Bitmap(stream);
+            }
+        }
         public override Guid ComponentGuid => new Guid("e0e098e6-0f5d-49f3-8eae-b6285862bdf3");
     }
 }

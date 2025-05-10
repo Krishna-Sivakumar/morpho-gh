@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Linq;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Data;
@@ -184,7 +185,13 @@ namespace morpho
         }
 
         public override GH_Exposure Exposure => GH_Exposure.primary;
-        protected override System.Drawing.Bitmap Icon => null;
+        protected override Bitmap Icon {
+            get {
+                var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+                var stream = assembly.GetManifestResourceStream("ghplugin.icons.data_aggregator.png");
+                return new Bitmap(stream);
+            }
+        }
         public override Guid ComponentGuid => new Guid("a6035d06-ea19-4809-9088-307ac9b62739");
     }
 }

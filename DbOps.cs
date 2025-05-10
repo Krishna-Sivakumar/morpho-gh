@@ -5,8 +5,6 @@ using System;
 using System.Data;
 using System.IO;
 using System.Linq;
-using Microsoft.VisualBasic;
-using Grasshopper.Kernel;
 
 namespace morpho {
 

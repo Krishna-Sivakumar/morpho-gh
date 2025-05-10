@@ -1,13 +1,11 @@
 using System;
+using System.Drawing;
 using System.Collections.Generic;
-using Newtonsoft.Json;
 using Rhino;
 
 using Grasshopper.Kernel;
 using System.Timers;
 using System.Linq;
-using Rhino.UI;
-using System.ComponentModel.DataAnnotations;
 
 namespace morpho
 {
@@ -410,7 +408,13 @@ namespace morpho
         }
 
         public override GH_Exposure Exposure => GH_Exposure.primary;
-        protected override System.Drawing.Bitmap Icon => null;
+        protected override Bitmap Icon {
+            get {
+                var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+                var stream = assembly.GetManifestResourceStream("ghplugin.icons.egg.png");
+                return new Bitmap(stream);
+            }
+        }
         public override Guid ComponentGuid => new Guid("5087ac2c-60e4-418d-b058-2dd08268a8d6");
     }
 }

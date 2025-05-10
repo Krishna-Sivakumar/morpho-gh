@@ -1,5 +1,5 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-	
+
   <PropertyGroup>
     <!-- Select the framework(s) you wish to target.
         Rhino 6: net45
@@ -29,6 +29,19 @@
   </PropertyGroup>
   
   <ItemGroup>
+    <EmbeddedResource Include="icons\dna.png" />
+    <EmbeddedResource Include="icons\egg.png" />
+    <EmbeddedResource Include="icons\filterand.png" />
+    <EmbeddedResource Include="icons\filteror.png" />
+    <EmbeddedResource Include="icons\filter.png" />
+    <EmbeddedResource Include="icons\data_aggregator.png" />
+    <EmbeddedResource Include="icons\save_to_population.png" />
+    <EmbeddedResource Include="icons\directory.png" />
+    <EmbeddedResource Include="icons\image_capture.png" />
+    <EmbeddedResource Include="icons\morpho.png" />
+  </ItemGroup>
+  
+  <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="System.Data.SQLite.Core" Version="1.0.119" />
     <PackageReference Include="Grasshopper" Version="6.35.21222.17001" Condition="$(TargetFramework) == 'net45'" ExcludeAssets="runtime" />
@@ -51,5 +64,4 @@
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net48" Version="1.0.3" ExcludeAssets="all" GeneratePathProperty="true" />
     <Reference Include="$(PkgMicrosoft_NETFramework_ReferenceAssemblies_net48)\build\.NETFramework\v4.8\System.Windows.Forms.dll" Private="False" />
   </ItemGroup>
-
 </Project>

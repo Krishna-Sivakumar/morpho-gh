@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Windows.Forms;
 
 using Grasshopper.Kernel;
@@ -226,7 +227,13 @@ namespace morpho
         /// You can add image files to your project resources and access them like this:
         /// return Resources.IconForThisComponent;
         /// </summary>
-        protected override System.Drawing.Bitmap Icon => null;
+        protected override Bitmap Icon {
+            get {
+                var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+                var stream = assembly.GetManifestResourceStream("ghplugin.icons.filter.png");
+                return new Bitmap(stream);
+            }
+        }
 
         /// <summary>
         /// Each component must have a unique Guid to identify it. 
@@ -247,7 +254,7 @@ namespace morpho
         /// </summary>
         public FilterConjuction()
           : base("Filter AND", "Filter AND",
-            "Joins two or more fitness filters with a binary AND",
+            "Joins two or more fitness filters with a boolean AND",
             "Morpho", "Fitness Functions")
         {
         }
@@ -255,7 +262,7 @@ namespace morpho
         /// <summary>
         /// Registers all the input parameters for this component.
         /// </summary>
-        protected override void RegisterInputParams(GH_Component.GH_InputParamManager pManager)
+        protected override void RegisterInputParams(GH_InputParamManager pManager)
         {
             pManager.AddGenericParameter("Fitness Filters", "Fitness Filters", "Set of fitness filters to be joined together.", GH_ParamAccess.list);
         }
@@ -300,7 +307,13 @@ namespace morpho
         /// You can add image files to your project resources and access them like this:
         /// return Resources.IconForThisComponent;
         /// </summary>
-        protected override System.Drawing.Bitmap Icon => null;
+        protected override Bitmap Icon {
+            get {
+                var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+                var stream = assembly.GetManifestResourceStream("ghplugin.icons.filterand.png");
+                return new Bitmap(stream);
+            }
+        }
 
         /// <summary>
         /// Each component must have a unique Guid to identify it. 
@@ -374,7 +387,13 @@ namespace morpho
         /// You can add image files to your project resources and access them like this:
         /// return Resources.IconForThisComponent;
         /// </summary>
-        protected override System.Drawing.Bitmap Icon => null;
+        protected override Bitmap Icon {
+            get {
+                var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+                var stream = assembly.GetManifestResourceStream("ghplugin.icons.filteror.png");
+                return new Bitmap(stream);
+            }
+        }
 
         /// <summary>
         /// Each component must have a unique Guid to identify it. 
