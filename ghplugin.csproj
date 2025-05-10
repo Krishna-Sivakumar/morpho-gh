@@ -7,12 +7,17 @@
         Rhino 8 Windows: net48, net7.0, net7.0-windows, net7.0-windows10.0.22000.0, etc
         Rhino 8 Mac: net7.0, net7.0-macos, net7.0-macos12.0, etc
     -->
-    <!-- <TargetFrameworks>net7.0-windows;net7.0;net48;net45</TargetFrameworks> -->
     <TargetFrameworks>net7.0-windows;net7.0;net48</TargetFrameworks>
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <TargetExt>.gha</TargetExt>
     <NoWarn>NU1701;NETSDK1086</NoWarn>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <!--
+        System.Drawing.Common is not supported below .NET 8.0 but we need to build (only) for older versions. Hence this warning is disabled.
+        I need this package to deal with images and this is the only version of it that actually works.
+    -->
+
+    <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
   </PropertyGroup>
   
   <PropertyGroup>
@@ -24,7 +29,6 @@
   </PropertyGroup>
   
   <ItemGroup>
-    <Reference Include="Microsoft.CSharp" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="System.Data.SQLite.Core" Version="1.0.119" />
     <PackageReference Include="Grasshopper" Version="6.35.21222.17001" Condition="$(TargetFramework) == 'net45'" ExcludeAssets="runtime" />

@@ -1,0 +1,43 @@
+name: dotnet package
+
+on:
+  push:
+    tags:
+      - '**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        dotnet-version: ['8.0.x']
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup dotnet ${{ matrix.dotnet-version }}
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ matrix.dotnet-version }}
+      # You can test your matrix by printing the current dotnet version
+      
+      - name: Build Grasshopper Assembly
+        run: dotnet build
+
+      - name: Zip releases into different packages
+        run: 'cd bin/Debug/net48/; zip -r morpho-net48.zip .; cd ../../..; cd bin/Debug/net7.0/; zip -r morpho-net7.0.zip .; cd ../../..; cd bin/Debug/net7.0-windows/; zip -r morpho-net7.0-windows.zip .; cd ../../..;'
+
+      - name: Set SHA head
+        id: vars
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Create a release and upload build artefacts to it
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          prerelease: false
+          name: Morpho Release ${{github.ref_name}}
+          files: |
+            ./bin/Debug/net48/morpho-net48.zip
+            ./bin/Debug/net7.0/morpho-net7.0.zip
+            ./bin/Debug/net7.0-windows/morpho-net7.0-windows.zip
