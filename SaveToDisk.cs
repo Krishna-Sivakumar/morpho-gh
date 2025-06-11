@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
@@ -90,7 +91,7 @@ namespace morpho
             return data_item;
         }
 
-        private static string SaveImage(NamedBitmap bitmapPair, DirectoryParameters directoryParameters, long solutionId) {
+        private static string SaveImage(NamedBitmap bitmapPair, DirectoryParameters directoryParameters, string solutionId) {
             if (bitmapPair.bitmap == null) {
                 throw new Exception("Viewport not captured.");
             }
@@ -99,10 +100,12 @@ namespace morpho
                 var di = Directory.CreateDirectory(Path.Combine(directoryParameters.directory, bitmapPair.name));
             }
 
-            var filePath = Path.Combine(directoryParameters.directory, bitmapPair.name, solutionId.ToString());
-            filePath = Path.ChangeExtension(filePath, ".png");
+            var localFilePath = Path.Combine(bitmapPair.name, solutionId);
+            localFilePath = Path.ChangeExtension(localFilePath, ".png");
+
+            var filePath = Path.Combine(directoryParameters.directory, localFilePath);
             bitmapPair.bitmap.Save(filePath, ImageFormat.Png);
-            return filePath;
+            return localFilePath;
         }
 
         protected static void SaveToCSV(string filename, MorphoAggregatedData solution) {
@@ -185,7 +188,7 @@ namespace morpho
                 if (inputCheckResult == ParameterCheckResult.Invalid) {
                     throw new Exception("Input parameters do not match initial setup.");
                 } else if (inputCheckResult == ParameterCheckResult.NoProject) {
-                    db.InsertTableLayout(serializableSolution, solution.files, projectName);
+                    db.InsertTableLayout(serializableSolution, solution.files, solution.images.Select(i => i.name).ToArray(), projectName);
                 }
 
                 // insert solution at this point, along with asset files / images

@@ -12,7 +12,7 @@ namespace morpho {
     /// Represents a metadata field within a project.
     /// </summary>
     public struct MetadataField {
-        public string fieldName, fieldUnit, fieldType;
+        public string field_name, field_unit, field_type;
     }
 
     public struct AssetField {
@@ -52,10 +52,10 @@ namespace morpho {
             {
                 DBConnection.Open();
 
-                string createAssetTable = $"CREATE TABLE IF NOT EXISTS asset (id text primary key, file text, tag text, solution_id integer, foreign key(solution_id) references solution(id))";
+                string createAssetTable = $"CREATE TABLE IF NOT EXISTS asset (id text primary key, file text, tag text, solution_id text, foreign key(solution_id) references solution(id))";
                 string createMetadataTable = $"CREATE TABLE IF NOT EXISTS metadata (project_name text primary key, captions jsonb, human_name text, slug text, markdown text, foreign key(project_name) references project(project_name))";
                 string createProjectTable = $"CREATE TABLE IF NOT EXISTS project (creation_date date not null, project_name text primary key, variable_metadata jsonb not null, output_metadata jsonb not null, assets jsonb, deleted integer not null)";
-                string createSolutionTable = $"CREATE TABLE IF NOT EXISTS solution (id integer primary key, parameters jsonb not null, output_parameters jsonb, project_name text not null, scoped_id integer, foreign key(project_name) references project(project_name))";
+                string createSolutionTable = $"CREATE TABLE IF NOT EXISTS solution (id text primary key, parameters jsonb not null, output_parameters jsonb, project_name text not null, scoped_id integer, foreign key(project_name) references project(project_name))";
 
                 var status = executeCreateQuery(createAssetTable, DBConnection);
                 status = executeCreateQuery(createMetadataTable, DBConnection);
@@ -92,7 +92,7 @@ namespace morpho {
                         var fields = JsonConvert.DeserializeObject<MetadataField[]>(metadata);
                         var result = new Dictionary<string, MetadataField>();
                         foreach (var field in fields) {
-                            result.Add(field.fieldName, field);
+                            result.Add(field.field_name, field);
                         }
                         DBConnection.Close();
                         return result;
@@ -115,23 +115,29 @@ namespace morpho {
         /// <param name="solution">The solution to be processed.</param>
         /// <param name="assets">Pairs of (tag, filepath) to be processed.</param>
         /// <returns>Input and Output MetadataField collections as a tuple, in that order.</returns>
-        private MetadataPair SerializeSolutionToMetadata(SaveToPopulation.SerializableSolution solution, Dictionary<string, string> assets) {
+        private MetadataPair SerializeSolutionToMetadata(SaveToPopulation.SerializableSolution solution, Dictionary<string, string> assets, string[] images) {
             List<MetadataField> input = new List<MetadataField>();
             List<MetadataField> output = new List<MetadataField>();
             List<AssetField> assetFields = new List<AssetField>();
 
-            // TODO field type and units are adjusted later on in the process.
             foreach (KeyValuePair<string, double> inputPair in solution.input_parameters) {
-                input.Add(new MetadataField{fieldName = inputPair.Key, fieldType = "DOUBLE", fieldUnit = ""});
+                input.Add(new MetadataField{field_name = inputPair.Key, field_type = "DOUBLE", field_unit = ""});
             }
             foreach (KeyValuePair<string, double> outputPair in solution.output_parameters) {
-                output.Add(new MetadataField{fieldName = outputPair.Key, fieldType = "DOUBLE", fieldUnit = ""});
+                output.Add(new MetadataField{field_name = outputPair.Key, field_type = "DOUBLE", field_unit = ""});
             }
-            foreach (KeyValuePair<string, string> assetPair in assets) {
-                var extension = Path.GetExtension(assetPair.Value);
 
-                // TODO some external script should assign the mimetype later
-                assetFields.Add(new AssetField{description = "", extension = extension, tag = assetPair.Key, mimeType = ""});
+            Mime m = new Mime();
+            foreach (string tagName in images) {
+                var mimetype = m.GetMimeType(".png");
+                assetFields.Add(new AssetField{description = "", extension = ".png", tag = tagName, mimeType = mimetype});
+            }
+
+            foreach (KeyValuePair<string, string> assetPair in assets) {
+                // Fill in whatever mime type we know, otherwise rely on external code to set it
+                var extension = Path.GetExtension(assetPair.Value);
+                var mimetype = m.GetMimeType(extension);
+                assetFields.Add(new AssetField{description = "", extension = extension[1..], tag = assetPair.Key, mimeType = mimetype});
             }
 
             return new MetadataPair {
@@ -145,10 +151,11 @@ namespace morpho {
         ///  Inserts a table layout into the local database.
         /// </summary>
         /// <returns>The number of rows inserted; should be 1.</returns>
-        public int InsertTableLayout(SaveToPopulation.SerializableSolution solution, Dictionary<string, string> assets, string projectName) {
+        public int InsertTableLayout(SaveToPopulation.SerializableSolution solution, Dictionary<string, string> assets, string[] images, string projectName) {
             string query = "INSERT INTO project(creation_date, project_name, variable_metadata, output_metadata, assets, deleted) VALUES ($creationDate, $projectName, $variableMetadata, $outputMetadata, $assets, False)";
+            string metadataInsertQuery = "INSERT INTO metadata(project_name, captions, human_name, slug, text) VALUES ($projectName, $captions, $humanName, $slug, $text)";
             var creationDate = DateTime.Today;
-            var metadataTuple = SerializeSolutionToMetadata(solution, assets);
+            var metadataTuple = SerializeSolutionToMetadata(solution, assets, images);
 
             using (var connection = new SQLiteConnection(connectionBuilder.ToString())) {
                 connection.Open();
@@ -160,6 +167,15 @@ namespace morpho {
                 command.Parameters.AddWithValue("$outputMetadata", JsonConvert.SerializeObject(metadataTuple.output));
                 command.Parameters.AddWithValue("$assets", JsonConvert.SerializeObject(metadataTuple.assets));
                 var status = command.ExecuteNonQuery();
+
+                command = connection.CreateCommand();
+                command.CommandText = metadataInsertQuery;
+                command.Parameters.AddWithValue("$projectName", projectName);
+                command.Parameters.AddWithValue("$captions", "[]");
+                command.Parameters.AddWithValue("$humanName", "");
+                command.Parameters.AddWithValue("$slug", "");
+                command.Parameters.AddWithValue("$text", "");
+                status = command.ExecuteNonQuery();
 
                 connection.Close();
                 return status;
@@ -173,42 +189,60 @@ namespace morpho {
             public InsertionError(string message, Exception innerException) : base (message, innerException) {}
         }
 
+        public string uuidv4() {
+            return Guid.NewGuid().ToString();
+        }
+
         /// <summary>
         /// Inserts a solution into the local database.
         /// </summary>
         /// <param name="solution">The serializable solution to be inserted</param>
         /// <returns>Number of rows inserted; should be 1.</returns>
-        public long InsertSolution(SaveToPopulation.SerializableSolution solution, string projectName) {
+        public string InsertSolution(SaveToPopulation.SerializableSolution solution, string projectName) {
             // should insert assets as well, in a transaction
-            long insertedSolutionId = -1;
-            string insertSolution = "INSERT INTO solution(parameters, output_parameters, project_name) VALUES ($parameters, $outputParameters, $projectName) RETURNING id;";
+            string insertedSolutionId = "";
+            string insertSolution = "INSERT INTO solution(id, parameters, output_parameters, project_name) VALUES ($id, $parameters, $outputParameters, $projectName) RETURNING id;";
             using (var connection = new SQLiteConnection(connectionBuilder.ToString())) {
                 // begin a transaction here
                 connection.Open();
-                using (var transaction = connection.BeginTransaction(IsolationLevel.Serializable)) {
-                    try {
+                using (var transaction = connection.BeginTransaction(IsolationLevel.Serializable))
+                {
+                    try
+                    {
+                        // query for the maximum scoped id, and use it
+
                         // insert solution first
                         var command = connection.CreateCommand();
                         command.CommandText = insertSolution;
                         command.Parameters.AddWithValue("$parameters", JsonConvert.SerializeObject(solution.input_parameters));
                         command.Parameters.AddWithValue("$outputParameters", JsonConvert.SerializeObject(solution.output_parameters));
                         command.Parameters.AddWithValue("$projectName", projectName);
-                        long solutionId;
-                        try {
-                            using (var reader = command.ExecuteReader()) {
-                                if (reader.Read()) {
-                                    solutionId = reader.GetInt64(0);
-                                } else {
+                        command.Parameters.AddWithValue("$id", uuidv4());
+                        string solutionId;
+                        try
+                        {
+                            using (var reader = command.ExecuteReader())
+                            {
+                                if (reader.Read())
+                                {
+                                    solutionId = reader.GetString(0);
+                                }
+                                else
+                                {
                                     throw new InsertionError("Could not insert solution into the database.");
                                 }
                             }
-                        } catch (Exception e) {
+                        }
+                        catch (Exception e)
+                        {
                             throw new InsertionError($"Could not insert solution into the database: {e.Message}");
                         }
 
                         transaction.Commit();
                         insertedSolutionId = solutionId;
-                    } catch (InsertionError e) {
+                    }
+                    catch (InsertionError e)
+                    {
                         transaction.Rollback();
                         throw new InsertionError(e.Message);
                     }
@@ -223,7 +257,7 @@ namespace morpho {
         /// </summary>
         /// <param name="solution">The serializable solution to be inserted</param>
         /// <returns>Number of rows inserted; should be 1.</returns>
-        public long InsertSolutionAssets(long solutionId, Dictionary<string, string> assets) {
+        public long InsertSolutionAssets(string solutionId, Dictionary<string, string> assets) {
             // should insert assets as well, in a transaction
             string insertAsset = "INSERT INTO asset(file, tag, solution_id) VALUES ($file, $tag, $solutionId)";
             using (var connection = new SQLiteConnection(connectionBuilder.ToString())) {
