@@ -274,15 +274,6 @@ namespace morpho
             return child;
         }
 
-        /// <summary> Deserializes and returns intervals from a set of JSON-encoded interval strings. </summary>
-        private Dictionary<string, MorphoInterval> CollectIntervals(List<MorphoInterval>  intervals) {
-            Dictionary<string, MorphoInterval> dictionary = new Dictionary<string, MorphoInterval>();
-            foreach (var interval in intervals) {
-                dictionary.Add(interval.name, interval);
-            }
-            return dictionary;
-        }
-
         /// <summary> Throws an exception with a message if the status flag passed in is false </summary>
         private static void checkError(bool status, string message)
         {

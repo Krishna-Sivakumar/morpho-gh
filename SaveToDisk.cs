@@ -198,9 +198,9 @@ namespace morpho
                         return;
                     }
                 }
-                var solutionId = db.InsertSolution(serializableSolution, directoryObject.projectName);
+                var (solutionId, scopedId) = db.InsertSolution(serializableSolution, directoryObject.projectName);
                 foreach (var nb in solution.images) {
-                    var filepath = SaveImage(nb, directoryObject, solutionId);
+                    var filepath = SaveImage(nb, directoryObject, scopedId);
                     solution.files.Add(nb.name, filepath); // filepaths are addded to assets later
                 }
 
