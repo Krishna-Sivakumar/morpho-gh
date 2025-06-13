@@ -201,11 +201,7 @@ namespace morpho {
             // should insert assets as well, in a transaction
             string insertedSolutionId = "";
             string insertedSolutionScopedId = "";
-            string insertSolution = """
-                INSERT INTO solution(id, parameters, output_parameters, project_name, scoped_id)
-                VALUES ($id, $parameters, $outputParameters, $projectName, ( SELECT ifnull(max(scoped_id),0) + 1 FROM solution WHERE project_name = $projectName )
-                RETURNING id, scoped_id;
-            """;
+            string insertSolution = "INSERT INTO solution(id, parameters, output_parameters, project_name, scoped_id) VALUES ($id, $parameters, $outputParameters, $projectName, ( SELECT ifnull(max(scoped_id),0) + 1 FROM solution WHERE project_name = $projectName )) RETURNING id, scoped_id;";
             using (var connection = new SQLiteConnection(connectionBuilder.ToString())) {
                 // begin a transaction here
                 connection.Open();
@@ -221,7 +217,7 @@ namespace morpho {
                         command.Parameters.AddWithValue("$projectName", projectName);
                         command.Parameters.AddWithValue("$id", uuidv4());
                         string solutionId;
-                        string scopedId;
+                        int scopedId;
                         try
                         {
                             using (var reader = command.ExecuteReader())
@@ -229,7 +225,7 @@ namespace morpho {
                                 if (reader.Read())
                                 {
                                     solutionId = reader.GetString(0);
-                                    scopedId = reader.GetString(1);
+                                    scopedId = reader.GetInt32(1);
                                 }
                                 else
                                 {
@@ -244,7 +240,7 @@ namespace morpho {
 
                         transaction.Commit();
                         insertedSolutionId = solutionId;
-                        insertedSolutionScopedId = scopedId;
+                        insertedSolutionScopedId = scopedId.ToString();
                     }
                     catch (InsertionError e)
                     {
