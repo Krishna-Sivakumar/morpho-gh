@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
+using System.Text;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Data;
 using Grasshopper.Kernel.Types;
@@ -167,21 +168,21 @@ namespace morpho
                 }
 
                 // We capture the output of panels into files here.
-                var sourceCounter = 0;
                 result.files = new Dictionary<string, string>();
-                try {
-                    var filesList = GetParameterList<string>(DA, "Files");
-                    sourceCounter = 0;
-                    foreach (string filename in filesList)
+                foreach (var source in Params.Input[3].Sources)
+                {
+                    StringBuilder stringBuilder = new StringBuilder();
+                    var volatileData = source.VolatileData.AllData(false).ToArray();
+                    foreach (var possibleString in volatileData)
                     {
-                        result.files.Add(
-                            Params.Input[3].Sources[sourceCounter].NickName,
-                            filename
-                        );
-                        sourceCounter++;
+                        stringBuilder.Append(possibleString.ToString());
+                        stringBuilder.Append('\n');
                     }
-                } catch (Exception) {
-                    // do nothing if there's an exception here
+
+                    result.files.Add(
+                        source.NickName,
+                        stringBuilder.ToString().TrimEnd()
+                    );
                 }
 
                 DA.SetData(0, result);
