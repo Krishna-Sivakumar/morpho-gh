@@ -137,6 +137,7 @@ namespace morpho {
                 // Fill in whatever mime type we know, otherwise rely on external code to set it
                 var extension = Path.GetExtension(assetPair.Value);
                 var mimetype = m.GetMimeType(extension);
+                extension = extension.Length > 0 ? extension : ".txt";
                 assetFields.Add(new AssetField{description = "", extension = extension.Substring(1, extension.Length - 1), tag = assetPair.Key, mimeType = mimetype});
             }
 

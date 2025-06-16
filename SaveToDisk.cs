@@ -91,13 +91,24 @@ namespace morpho
             return data_item;
         }
 
-        private static string SaveImage(NamedBitmap bitmapPair, DirectoryParameters directoryParameters, string solutionId) {
-            if (bitmapPair.bitmap == null) {
+        /// <summary>
+        /// Takes a bitmap image (bitmapPair) and saves it to a directory (directoryParameters), under a solutionId.
+        /// </summary>
+        /// <param name="bitmapPair">The <see cref="NamedBitmap"/> to save.</param>
+        /// <param name="directoryParameters">The directory to save the file to.</param>
+        /// <param name="solutionId">The solution id to save the file under.</param>
+        /// <returns>The local file path to which the file is saved to, within the directory.</returns>
+        /// <exception cref="Exception">Thrown when the bitmap is null.</exception>
+        private static string SaveImage(NamedBitmap bitmapPair, DirectoryParameters directoryParameters, string solutionId)
+        {
+            if (bitmapPair.bitmap == null)
+            {
                 throw new Exception("Viewport not captured.");
             }
 
-            if (!Directory.Exists(Path.Combine(directoryParameters.directory, bitmapPair.name))) {
-                var di = Directory.CreateDirectory(Path.Combine(directoryParameters.directory, bitmapPair.name));
+            if (!Directory.Exists(Path.Combine(directoryParameters.directory, bitmapPair.name)))
+            {
+                Directory.CreateDirectory(Path.Combine(directoryParameters.directory, bitmapPair.name));
             }
 
             var localFilePath = Path.Combine(bitmapPair.name, solutionId);
@@ -108,7 +119,36 @@ namespace morpho
             return localFilePath;
         }
 
-        protected static void SaveToCSV(string filename, MorphoAggregatedData solution) {
+        /// <summary>
+        /// Saves a string to a file in a directory under a specific tag and solution id.
+        /// </summary>
+        /// <param name="fileTag">Name of the file's tag</param>
+        /// <param name="fileContents">The contents to be saved</param>
+        /// <param name="directoryParameters">The directory to save the file to</param>
+        /// <param name="solutionId">The solution id to save the file under</param>
+        /// <returns>The local file path to which the file is saved to, within the directory.</returns>
+        private static string SaveFile(string fileTag, string fileContents, DirectoryParameters directoryParameters, string solutionId)
+        {
+            if (!Directory.Exists(Path.Combine(directoryParameters.directory, fileTag)))
+            {
+                Directory.CreateDirectory(Path.Combine(directoryParameters.directory, fileTag));
+            }
+            var localFilePath = Path.Combine(fileTag, solutionId);
+            localFilePath = Path.ChangeExtension(localFilePath, ".txt");
+
+            var filePath = Path.Combine(directoryParameters.directory, localFilePath);
+            var fd = new FileStream(filePath, FileMode.OpenOrCreate, FileAccess.Write);
+            var stream = new StreamWriter(fd);
+
+            stream.Write(fileContents);
+            stream.Flush();
+            stream.Close();
+
+            return localFilePath;
+        }
+        
+        protected static void SaveToCSV(string filename, MorphoAggregatedData solution)
+        {
             var fd = new FileStream(filename, FileMode.OpenOrCreate, FileAccess.Read);
             var fileLength = fd.Length;
             fd.Close();
@@ -116,12 +156,15 @@ namespace morpho
             var file = new StreamWriter(filename, append: true);
 
             // Append a header if the file is empty
-            if (fileLength == 0) {
+            if (fileLength == 0)
+            {
                 var headerStringBuilder = new StringBuilder();
-                foreach (var input in solution.inputs) {
+                foreach (var input in solution.inputs)
+                {
                     headerStringBuilder.Append($"{input.Key},");
                 }
-                foreach (var output in solution.outputs) {
+                foreach (var output in solution.outputs)
+                {
                     headerStringBuilder.Append($"{output.Key},");
                 }
                 headerStringBuilder.Remove(headerStringBuilder.Length - 1, 1);
@@ -131,10 +174,12 @@ namespace morpho
 
             // Append the solution to the end of the file
             var dataStringBuilder = new StringBuilder();
-            foreach (var input in solution.inputs) {
+            foreach (var input in solution.inputs)
+            {
                 dataStringBuilder.Append($"{input.Value},");
             }
-            foreach (var output in solution.outputs) {
+            foreach (var output in solution.outputs)
+            {
                 dataStringBuilder.Append($"{output.Value},");
             }
             dataStringBuilder.Remove(dataStringBuilder.Length - 1, 1);
@@ -172,6 +217,7 @@ namespace morpho
                     throw new ParameterException();
                 }
 
+                // 1. Check if any of the inputs or outputs are empty
                 SerializableSolution serializableSolution = new SerializableSolution{ input_parameters = solution.inputs, output_parameters = solution.outputs };
                 if (solution.inputs == null || solution.outputs == null)
                 {
@@ -179,11 +225,12 @@ namespace morpho
                     return;
                 }
 
+                // 2. Save solution to a CSV first
                 SaveToCSV(directoryObject.directory + "/solutions.csv", solution);
 
                 DBOps db = new DBOps(directoryObject);
                 
-                // check if input parameters differ for this insert. If it does, error out.
+                // 3. Check if the names of input parameters differ for this insert. If it does, error out.
                 var inputCheckResult = InputParameterCheck(solution, directoryObject);
                 if (inputCheckResult == ParameterCheckResult.Invalid) {
                     throw new Exception("Input parameters do not match initial setup.");
@@ -191,23 +238,33 @@ namespace morpho
                     db.InsertTableLayout(serializableSolution, solution.files, solution.images.Select(i => i.name).ToArray(), projectName);
                 }
 
-                // insert solution at this point, along with asset files / images
-                foreach (var nb in solution.images) {
-                    if (nb.bitmap == null) {
+                // 4. Check if any of the image-capturing viewports are missing
+                foreach (var nb in solution.images)
+                {
+                    if (nb.bitmap == null)
+                    {
                         AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Viewport not set.");
                         return;
                     }
                 }
+
+                // 5. Save the solution to the database, and then use the id we get back to save images and files.
                 var (solutionId, scopedId) = db.InsertSolution(serializableSolution, directoryObject.projectName);
-                foreach (var nb in solution.images) {
+                var savedFilePaths = new Dictionary<string, string>();
+                foreach (var nb in solution.images)
+                {
                     var filepath = SaveImage(nb, directoryObject, scopedId);
-                    solution.files.Add(nb.name, filepath); // filepaths are addded to assets later
+                    savedFilePaths.Add(nb.name, filepath);
+                    // solution.files.Add(nb.name, filepath); // filepaths are addded to assets later
                 }
 
-                db.InsertSolutionAssets(solutionId, solution.files);
+                foreach (var filePair in solution.files)
+                {
+                    var filepath = SaveFile(filePair.Key, filePair.Value, directoryObject, scopedId);
+                    savedFilePaths.Add(filePair.Key, filepath);
+                }
 
-                // TODO implement writeToCSV() for the new setup
-                // writeToCSV(directoryObject.directory, projectName, solution);
+                db.InsertSolutionAssets(solutionId, savedFilePaths);
             } catch (ParameterException) {
                 AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Missing Parameters");
             } catch (DBOps.InsertionError e) {

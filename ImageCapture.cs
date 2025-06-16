@@ -4,22 +4,61 @@ using Rhino.Display;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
 using System.Windows.Forms;
 
 namespace morpho
 {
 
-    public struct ViewportDetails {
+    public struct ViewportDetails
+    {
         public RhinoView viewport;
         public string name;
+        public string path;
 
-        public override string ToString() {
-            return $"{viewport} {name}";
+        public override string ToString()
+        {
+            return $"ImageCapture: {viewport} {name}";
+        }
+
+        /// <summary>
+        /// Captures an image from either the viewport provided, or the path specified.
+        /// This method can fail in 3 ways:
+        /// 1. No viewport or path provided
+        /// 2. Can't convert the path to an image
+        /// 3. Can't capture an image from the viewport.
+        /// </summary>
+        /// <returns>A Bitmap captured from the viewport, or the path specified.</returns>
+        /// <exception cref="Exception"></exception>
+        /// <exception cref="OutOfMemoryException">If the given path is not an image, this exception is thrown.</exception>
+        public Bitmap GetImage()
+        {
+            if (viewport != null)
+            {
+                return viewport.CaptureToBitmap();
+            }
+            else if (path != "")
+            {
+                return new Bitmap(Image.FromFile(path));
+            }
+            else
+            {
+                throw new Exception("No path or viewport is set.");
+            }
+        }
+
+        public bool IsValid()
+        {
+            return viewport != null || File.Exists(path);
         }
     }
 
-    public struct NamedBitmap {
+    /// <summary> K </summary>
+    public struct NamedBitmap
+    {
+        /// <summary> Enclosed Bitmap object </summary>
         public Bitmap bitmap;
+        /// <summary> Name of the Bitmap object </summary>
         public string name;
     }
 
@@ -38,7 +77,7 @@ namespace morpho
         /// </summary>
         public ImageCapture()
           : base("Image Capture", "Image Capture",
-            "Selects a viewport from the active Rhino3D document and captures it into a bitmap image.",
+            "Selects a viewport from the active Rhino3D document or an image file locally and captures it into a bitmap image. If the path is set, it takes precedence over the viewport.",
             "Morpho", "Genetic Search")
         {
         }
@@ -53,6 +92,8 @@ namespace morpho
             // All parameters must have the correct access type. If you want 
             // to import lists or trees of values, modify the ParamAccess flag.
             pManager.AddTextParameter("Tag", "Tag", "Tag for the captured viewport", GH_ParamAccess.item);
+            pManager.AddTextParameter("File", "File", "Optional file path to read the image from", GH_ParamAccess.item);
+            pManager[1].Optional = true;
         }
 
         protected override void RegisterOutputParams(GH_OutputParamManager pManager)
@@ -60,16 +101,30 @@ namespace morpho
             pManager.AddGenericParameter("Image", "Image", "Bitmap Image of the Viewport", GH_ParamAccess.item);
         }
 
-        protected static void checkError(bool success, string errorMessage) {
+        /// <summary> Throws an exception with a message if the success flag is set to false.</summary>
+        /// <param name="success">flag to check.</param>
+        /// <param name="errorMessage">message to be included in the exception.</param>
+        /// <exception cref="Exception"></exception>
+        protected static void checkError(bool success, string errorMessage)
+        {
             if (!success)
                 throw new Exception(errorMessage);
         }
 
-        protected static void checkError(bool success) {
+        /// <summary> Throws an exception with a message if the success flag is set to false.</summary>
+        /// <param name="success">flag to check.</param>
+        protected static void checkError(bool success)
+        {
             checkError(success, "parameters missing.");
         }
 
-        protected static T GetParameter<T>(IGH_DataAccess DA, string name) {
+        /// <summary>Gets an input parameter typed with T. If the parameter is not present, throws an exception.</summary>
+        /// <param name="DA">Component Data Access object.</param>
+        /// <param name="name">Name of the parameter to get.</param>
+        /// <returns>Value of the parameter, typed with T.</returns>
+        /// <exception cref="Exception"></exception>
+        protected static T GetParameter<T>(IGH_DataAccess DA, string name)
+        {
             T data_item = default;
             checkError(DA.GetData(name, ref data_item));
             return data_item;
@@ -117,15 +172,34 @@ namespace morpho
         protected override void SolveInstance(IGH_DataAccess DA)
         {
             var tag = GetParameter<string>(DA, "Tag");
+            try
+            {
+                var filePath = GetParameter<string>(DA, "File");
+                ViewportDetails pathVp = new ViewportDetails
+                {
+                    viewport = null,
+                    name = tag,
+                    path = filePath,
+                };
+                DA.SetData(0, pathVp);
+                return;
+            }
+            catch (Exception)
+            {
+                // do nothing in case the file path is not set.
+            }
 
-            if (this.viewport == null) {
+            if (viewport == null)
+            {
                 AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Viewport not set. Use the component context menu to set it.");
                 return;
             }
 
-            ViewportDetails vp = new ViewportDetails{
-                viewport = this.viewport,
-                name = tag
+            ViewportDetails vp = new ViewportDetails
+            {
+                viewport = viewport,
+                name = tag,
+                path = "",
             };
 
             DA.SetData(0, vp);

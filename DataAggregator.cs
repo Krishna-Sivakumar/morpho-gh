@@ -11,9 +11,13 @@ namespace morpho
 {
     public struct MorphoAggregatedData
     {
+        /// <summary> Pairs of input names to input values </summary>
         public Dictionary<string, double> inputs;
+        /// <summary> Pairs of output names to output values </summary>
         public Dictionary<string, double> outputs;
-        public Dictionary<string, string> files; // pairs of <file tag, file name>
+        /// <summary>Pairs of file tags to file contents</summary>
+        public Dictionary<string, string> files;  
+        /// <summary>Pairs of image tags to <see cref="NamedBitmap"/></summary>
         public List<NamedBitmap> images;
 
         public override string ToString() {
@@ -53,7 +57,7 @@ namespace morpho
             pManager.AddTextParameter("Inputs", "Inputs", "Set of inputs. Connect output from the Gene Generator here directly.", GH_ParamAccess.list);
             pManager.AddNumberParameter("Outputs", "Outputs", "Set outputs. Set up a named Data component to name each output appropriately.", GH_ParamAccess.tree);
             var imgIndex = pManager.AddGenericParameter("Images", "Images", "Image files generated during a run.", GH_ParamAccess.list);
-            var fileIndex = pManager.AddTextParameter("Files", "Files", "Names of analysis files generated", GH_ParamAccess.list);
+            var fileIndex = pManager.AddTextParameter("Files", "Files", "Textual output to be saved to files.", GH_ParamAccess.list);
             pManager[imgIndex].Optional = true;
             pManager[fileIndex].Optional = true;
         }
@@ -73,12 +77,6 @@ namespace morpho
             List<T> data_items = new List<T>();
             checkError(DA.GetDataList(fieldName, data_items), $"Missing parameter {fieldName}");
             return data_items;
-        }
-
-        private static GH_Structure<T> GetParameterTree<T>(IGH_DataAccess DA, string fieldName) where T: IGH_Goo {
-            GH_Structure<T> tree;
-            checkError(DA.GetDataTree(fieldName, out tree), $"Missing parameter {fieldName}");
-            return tree;
         }
 
         private static bool IsFulfilled(IGH_Param param) {
@@ -143,24 +141,32 @@ namespace morpho
                 // we ingest images here
                 // we capture viewports to a bitmap 
                 // refer to https://discourse.mcneel.com/t/capture-viewport-as-image-in-cache/137791/2 for implementation
-                try {
-                    var viewportDetails = GetParameterList<ViewportDetails>(DA, "Images");
-                    result.images = new List<NamedBitmap>();
-                    foreach (var viewportDetail in viewportDetails) {
-                        if (viewportDetail.viewport is null) {
-                            throw new ParameterException();
-                        }
-                        var namedBitmap = new NamedBitmap{
-                            bitmap = viewportDetail.viewport.CaptureToBitmap(),
+                var viewportDetails = GetParameterList<ViewportDetails>(DA, "Images");
+                result.images = new List<NamedBitmap>();
+                foreach (var viewportDetail in viewportDetails)
+                {
+                    if (!viewportDetail.IsValid())
+                    {
+                        throw new ParameterException($"{viewportDetail.name} does not have a viewport or file path set.");
+                    }
+
+                    try
+                    {
+                        var bitmap = viewportDetail.GetImage();
+                        var namedBitmap = new NamedBitmap
+                        {
+                            bitmap = viewportDetail.GetImage(),
                             name = viewportDetail.name
                         };
                         result.images.Add(namedBitmap);
                     }
-                } catch (Exception e) {
-                    Console.WriteLine(e);
-                    throw new ParameterException($"One of the inputs is unset or is not an ImageCapture component.");
+                    catch (Exception ex) when (ex is OutOfMemoryException || ex is ArgumentException)
+                    {
+                        throw new ParameterException($"{viewportDetail.name} points to a file path that is not an image ({viewportDetail.path}).");
+                    }
                 }
 
+                // We capture the output of panels into files here.
                 var sourceCounter = 0;
                 result.files = new Dictionary<string, string>();
                 try {
