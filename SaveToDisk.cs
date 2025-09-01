@@ -101,9 +101,13 @@ namespace morpho
         /// <exception cref="Exception">Thrown when the bitmap is null.</exception>
         private static string SaveImage(NamedBitmap bitmapPair, DirectoryParameters directoryParameters, string solutionId)
         {
-            if (bitmapPair.bitmap == null)
+            if (bitmapPair.type == NamedBitmapType.IS_BITMAP && bitmapPair.bitmap == null)
             {
                 throw new Exception("Viewport not captured.");
+            }
+            else if (bitmapPair.type == NamedBitmapType.IS_PATH && !File.Exists(bitmapPair.path))
+            {
+                throw new Exception($"Image path \"{bitmapPair.path}\" is not a valid file path.");
             }
 
             if (!Directory.Exists(Path.Combine(directoryParameters.directory, bitmapPair.name)))
@@ -112,10 +116,8 @@ namespace morpho
             }
 
             var localFilePath = Path.Combine(bitmapPair.name, solutionId);
-            localFilePath = Path.ChangeExtension(localFilePath, ".png");
-
             var filePath = Path.Combine(directoryParameters.directory, localFilePath);
-            bitmapPair.bitmap.Save(filePath, ImageFormat.Png);
+            bitmapPair.Save(filePath);
             return localFilePath;
         }
 
@@ -241,9 +243,14 @@ namespace morpho
                 // 4. Check if any of the image-capturing viewports are missing
                 foreach (var nb in solution.images)
                 {
-                    if (nb.bitmap == null)
+                    if (nb.type == NamedBitmapType.IS_BITMAP && nb.bitmap == null)
                     {
-                        AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Viewport not set.");
+                        AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, $"Viewport not set for Image data {nb.name}.");
+                        return;
+                    }
+                    else if (nb.type == NamedBitmapType.IS_PATH && !File.Exists(nb.path))
+                    {
+                        AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, $"Path {nb.path} cannot be saved as an image, as it is not valid.");
                         return;
                     }
                 }

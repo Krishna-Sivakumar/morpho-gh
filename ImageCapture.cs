@@ -4,6 +4,7 @@ using Rhino.Display;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Windows.Forms;
 
@@ -22,24 +23,24 @@ namespace morpho
         }
 
         /// <summary>
-        /// Captures an image from either the viewport provided, or the path specified.
+        /// Captures a NamedBitmap from either the viewport provided, or the path specified.
         /// This method can fail in 3 ways:
         /// 1. No viewport or path provided
         /// 2. Can't convert the path to an image
         /// 3. Can't capture an image from the viewport.
         /// </summary>
-        /// <returns>A Bitmap captured from the viewport, or the path specified.</returns>
+        /// <returns>A NamedBitmap struct with either a path or a bitmap within.</returns>
         /// <exception cref="Exception"></exception>
         /// <exception cref="OutOfMemoryException">If the given path is not an image, this exception is thrown.</exception>
-        public Bitmap GetImage()
+        public NamedBitmap GetNamedBitmap()
         {
             if (viewport != null)
             {
-                return viewport.CaptureToBitmap();
+                return new NamedBitmap(name, viewport.CaptureToBitmap());
             }
             else if (path != "")
             {
-                return new Bitmap(Image.FromFile(path));
+                return new NamedBitmap(name, path);
             }
             else
             {
@@ -53,13 +54,53 @@ namespace morpho
         }
     }
 
-    /// <summary> K </summary>
+    public enum NamedBitmapType
+    {
+        IS_PATH,
+        IS_BITMAP
+    }
+
+    /// <summary> Represents a NamedBitmap produced by the DataAggregator </summary>
     public struct NamedBitmap
     {
-        /// <summary> Enclosed Bitmap object </summary>
+        /// <summary> Enclosed Bitmap object (if it exists) </summary>
         public Bitmap bitmap;
         /// <summary> Name of the Bitmap object </summary>
         public string name;
+        /// <summary> Path of a file (if it exists; for niche cases like HDR images) </summary>
+        public string path;
+        /// <summary> Type of the Bitmap object (can be a bitmap or a pointer to a file path) </summary>
+        public NamedBitmapType type;
+
+        public NamedBitmap(string name, Bitmap bitmap)
+        {
+            this.type = NamedBitmapType.IS_BITMAP;
+            this.path = "";
+            this.name = name;
+            this.bitmap = bitmap;
+        }
+
+        public NamedBitmap(string name, string path)
+        {
+            this.type = NamedBitmapType.IS_PATH;
+            this.bitmap = null;
+            this.name = name;
+            this.path = path;
+        }
+
+        public void Save(string filepath)
+        {
+            if (type == NamedBitmapType.IS_PATH)
+            {
+                filepath = Path.ChangeExtension(filepath, Path.GetExtension(path)); // assign extension of source file to target file
+                File.Copy(path, filepath); // don't mess with this, just propogate errors upwards
+            }
+            else if (type == NamedBitmapType.IS_BITMAP)
+            {
+                filepath = Path.ChangeExtension(filepath, ".png");
+                bitmap.Save(filepath, ImageFormat.Png);
+            }
+        }
     }
 
     /// <summary>

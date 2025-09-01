@@ -160,7 +160,21 @@ namespace morpho
                 // we ingest images here
                 // we capture viewports to a bitmap 
                 // refer to https://discourse.mcneel.com/t/capture-viewport-as-image-in-cache/137791/2 for implementation
-                var viewportDetails = GetParameterList<ViewportDetails>(DA, "Images");
+
+                bool imagesPresent = false;
+                List<ViewportDetails> viewportDetails = new List<ViewportDetails>();
+                try
+                {
+                    viewportDetails = GetParameterList<ViewportDetails>(DA, "Images");
+                    imagesPresent = true;
+                }
+                catch
+                {
+                    imagesPresent = false;
+                }
+
+                if (imagesPresent)
+                {
                 result.images = new List<NamedBitmap>();
                 foreach (var viewportDetail in viewportDetails)
                 {
@@ -171,17 +185,12 @@ namespace morpho
 
                     try
                     {
-                        var bitmap = viewportDetail.GetImage();
-                        var namedBitmap = new NamedBitmap
-                        {
-                            bitmap = viewportDetail.GetImage(),
-                            name = viewportDetail.name
-                        };
-                        result.images.Add(namedBitmap);
+                            result.images.Add(viewportDetail.GetNamedBitmap());
                     }
                     catch (Exception ex) when (ex is OutOfMemoryException || ex is ArgumentException)
                     {
-                        throw new ParameterException($"{viewportDetail.name} points to a file path that is not an image ({viewportDetail.path}).");
+                            throw new ParameterException($"{viewportDetail.name} points to a file path that is not an image ({viewportDetail.path}). Exception {ex.GetType()}: {ex.Message}");
+                        }
                     }
                 }
 
