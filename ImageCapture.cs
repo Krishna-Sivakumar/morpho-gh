@@ -171,7 +171,9 @@ namespace morpho
         /// to store data in output parameters.</param>
         protected override void SolveInstance(IGH_DataAccess DA)
         {
+            // Either get the file, or the viewport. Both can't be null.
             var tag = GetParameter<string>(DA, "Tag");
+            bool fileFound = true;
             try
             {
                 var filePath = GetParameter<string>(DA, "File");
@@ -187,11 +189,12 @@ namespace morpho
             catch (Exception)
             {
                 // do nothing in case the file path is not set.
+                fileFound = false;
             }
 
-            if (viewport == null)
+            if (viewport == null && fileFound == false)
             {
-                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Viewport not set. Use the component context menu to set it.");
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Neither Viewport nor Filepath is present. Use the component context menu to set the viewport.");
                 return;
             }
 

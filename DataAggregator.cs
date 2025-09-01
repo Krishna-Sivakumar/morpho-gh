@@ -56,7 +56,7 @@ namespace morpho
         protected override void RegisterInputParams(GH_InputParamManager pManager)
         {
             pManager.AddTextParameter("Inputs", "Inputs", "Set of inputs. Connect output from the Gene Generator here directly.", GH_ParamAccess.list);
-            pManager.AddNumberParameter("Outputs", "Outputs", "Set outputs. Set up a named Data component to name each output appropriately.", GH_ParamAccess.tree);
+            pManager.AddGenericParameter("Outputs", "Outputs", "Set outputs. Set up a named Data component to name each output appropriately.", GH_ParamAccess.tree);
             var imgIndex = pManager.AddGenericParameter("Images", "Images", "Image files generated during a run.", GH_ParamAccess.list);
             var fileIndex = pManager.AddTextParameter("Files", "Files", "Textual output to be saved to files.", GH_ParamAccess.list);
             pManager[imgIndex].Optional = true;
@@ -80,10 +80,20 @@ namespace morpho
             return data_items;
         }
 
-        private static bool IsFulfilled(IGH_Param param) {
-            if (param.SourceCount > 0) {
-                return param.Sources.Select(src => src.VolatileDataCount > 0).Aggregate((acc, incoming) => acc & incoming);
-            } else {
+        /// <summary>
+        /// Takes the sources of a parameter, maps each source (component object) to whether it has data ready at its volatile output field (boolean),
+        /// and checks if all sources have their volatile fields filled (boolean).
+        /// </summary>
+        private static bool IsFulfilled(IGH_Param param)
+        {
+            if (param.SourceCount > 0)
+            {
+                return param.Sources
+                    .Select(src => src.VolatileDataCount > 0)
+                    .Aggregate((acc, incoming) => acc & incoming);
+            }
+            else
+            {
                 return true;
             }
         }
@@ -121,7 +131,15 @@ namespace morpho
                     so we'll have to visit each component's volatile data parameter to collect data.
                 */
                 result.outputs = new Dictionary<string, double>();
-                foreach (var source in Params.Input[1].Sources) {
+                foreach (var source in Params.Input[1].Sources)
+                {
+                    if (source.NickName.ToLower().Contains("ignore"))
+                    {
+                        // skip any outputs that have "ignore" in their nickname.
+                        // This is meant to be used with analytic components that produce images and such.
+                        continue;
+                    }
+
                     double outputValue;
                     int possibleIntValue;
 
