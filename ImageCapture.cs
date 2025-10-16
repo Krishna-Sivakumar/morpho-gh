@@ -177,32 +177,47 @@ namespace morpho
         private Dictionary<string, Guid>  viewportMap;
 
         protected void MenuClickHandler(object sender, EventArgs e) {
-            // event handler to be called when the toolstrip buttons are clicked
-            var button = (ToolStripButton) sender;
-            viewport = RhinoDoc.ActiveDoc.Views.Find(viewportMap[button.Text]);
+            try
+            {
+                // event handler to be called when the toolstrip buttons are clicked
+                var button = (ToolStripButton)sender;
+                viewport = RhinoDoc.ActiveDoc.Views.Find(viewportMap[button.Text]);
 
-            // Cannot call ExpireSolution(true) directly if it's not a UI component. So we do this.
-            // Refer to https://discourse.mcneel.com/t/system-invalidoperationexception-cross-thread-operation-not-valid/95176.
-            var d = new ExpireSolutionDelegate(ExpireSolution);
-            RhinoApp.InvokeOnUiThread(d, true);
+                // Cannot call ExpireSolution(true) directly if it's not a UI component. So we do this.
+                // Refer to https://discourse.mcneel.com/t/system-invalidoperationexception-cross-thread-operation-not-valid/95176.
+                var d = new ExpireSolutionDelegate(ExpireSolution);
+                RhinoApp.InvokeOnUiThread(d, true);
+            }
+            catch (Exception ex)
+            {
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Error, ex.Message);
+            }
         }
 
         protected override void AppendAdditionalComponentMenuItems(ToolStripDropDown menu) {
-            viewportMap = new Dictionary<string, Guid>();
-            List<ToolStripButton> buttons  = new List<ToolStripButton>();
-            foreach (var view in RhinoDoc.ActiveDoc.Views) {
-                var tempButton = new ToolStripButton();
-                // TODO Active viewport might not be what we need.
-                tempButton.Text = view.ActiveViewport.Name;
-                tempButton.Click += MenuClickHandler;
-                buttons.Add(tempButton);
-                viewportMap.Add(view.ActiveViewport.Name, view.ActiveViewportID);
-            }
+            try
+            {
+                viewportMap = new Dictionary<string, Guid>();
+                List<ToolStripButton> buttons = new List<ToolStripButton>();
+                foreach (var view in RhinoDoc.ActiveDoc.Views)
+                {
+                    var tempButton = new ToolStripButton();
+                    // TODO Active viewport might not be what we need.
+                    tempButton.Text = view.ActiveViewport.Name;
+                    tempButton.Click += MenuClickHandler;
+                    buttons.Add(tempButton);
+                    viewportMap.Add(view.ActiveViewport.Name, view.ActiveViewportID);
+                }
 
-            var label = new ToolStripLabel();
-            label.Text = "Select Viewport:";
-            menu.Items.Add(label);
-            menu.Items.AddRange(buttons.ToArray());
+                var label = new ToolStripLabel();
+                label.Text = "Select Viewport:";
+                menu.Items.Add(label);
+                menu.Items.AddRange(buttons.ToArray());
+            }
+            catch (Exception ex)
+            {
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Error, ex.Message);
+            }
         }
 
         /// <summary>
