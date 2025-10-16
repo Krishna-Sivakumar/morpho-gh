@@ -10,6 +10,91 @@ using System.Windows.Forms;
 
 namespace morpho
 {
+    class ErrorTraceForm : Form
+    {
+        private TextBox txtStackTrace;
+        private Button btnCopy;
+        private Label lblTitle;
+
+        public ErrorTraceForm(string componentName, string methodName, Exception ex)
+        {
+            InitializeComponents();
+            this.SetException(componentName, methodName, ex);
+        }
+
+        private void InitializeComponents()
+        {
+            // Form settings
+            this.Text = "Error Details";
+            this.Size = new System.Drawing.Size(600, 400);
+            this.StartPosition = FormStartPosition.CenterScreen;
+            this.MinimumSize = new System.Drawing.Size(400, 300);
+
+            // Title label
+            lblTitle = new Label();
+            lblTitle.Text = "Stack Trace:";
+            lblTitle.Location = new System.Drawing.Point(10, 10);
+            lblTitle.Size = new System.Drawing.Size(580, 20);
+            lblTitle.Font = new System.Drawing.Font("Segoe UI", 16, System.Drawing.FontStyle.Bold);
+
+            // TextBox for stack trace
+            txtStackTrace = new TextBox();
+            txtStackTrace.Location = new System.Drawing.Point(10, 35);
+            txtStackTrace.Size = new System.Drawing.Size(560, 280);
+            txtStackTrace.Multiline = true;
+            txtStackTrace.ScrollBars = ScrollBars.Both;
+            txtStackTrace.ReadOnly = true;
+            txtStackTrace.Font = new System.Drawing.Font("Consolas", 16);
+            txtStackTrace.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+
+            // Copy button
+            btnCopy = new Button();
+            btnCopy.Text = "Copy to Clipboard";
+            btnCopy.Location = new System.Drawing.Point(10, 325);
+            btnCopy.Size = new System.Drawing.Size(150, 30);
+            btnCopy.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
+            btnCopy.Click += BtnCopy_Click;
+
+            // Add controls to form
+            this.Controls.Add(lblTitle);
+            this.Controls.Add(txtStackTrace);
+            this.Controls.Add(btnCopy);
+        }
+
+        public void AddText(string text, uint newLines = 1)
+        {
+            txtStackTrace.Text += text;
+            for (int i = 0; i < newLines; i++)
+            {
+                txtStackTrace.Text += '\n';
+            }
+        }
+
+        void SetException(string componentName, string methodName, Exception e)
+        {
+            this.AddText($"Error at {componentName}: {methodName}");
+            this.AddText("-------------------------------------------", 2);
+            this.AddText($"Error Information:", 2);
+            this.AddText($"{e}");
+
+        }
+
+        void SetText(string text)
+        {
+            txtStackTrace.Text = text;
+        }
+
+        private void BtnCopy_Click(object sender, EventArgs e)
+        {
+            if (!string.IsNullOrEmpty(txtStackTrace.Text))
+            {
+                Clipboard.SetText(txtStackTrace.Text);
+                MessageBox.Show("Stack trace copied to clipboard!", "Success",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+        }
+    }
+
 
     public struct ViewportDetails
     {
@@ -106,7 +191,7 @@ namespace morpho
     /// <summary>
     /// The Directory component collects the location and project name under which the data should be saved.
     /// </summary>
-    public class ImageCapture: GH_Component
+    public class ImageCapture : GH_Component
     {
 
         /// <summary>
@@ -174,9 +259,10 @@ namespace morpho
         // Setting up Menu Items for selecting the viewport
 
         private RhinoView viewport;
-        private Dictionary<string, Guid>  viewportMap;
+        private Dictionary<string, Guid> viewportMap;
 
-        protected void MenuClickHandler(object sender, EventArgs e) {
+        protected void MenuClickHandler(object sender, EventArgs e)
+        {
             try
             {
                 // event handler to be called when the toolstrip buttons are clicked
@@ -190,11 +276,13 @@ namespace morpho
             }
             catch (Exception ex)
             {
-                AddRuntimeMessage(GH_RuntimeMessageLevel.Error, ex.Message);
+                var errorForm = new ErrorTraceForm(this.Name, System.Reflection.MethodBase.GetCurrentMethod().Name, ex);
+                errorForm.ShowDialog();
             }
         }
 
-        protected override void AppendAdditionalComponentMenuItems(ToolStripDropDown menu) {
+        protected override void AppendAdditionalComponentMenuItems(ToolStripDropDown menu)
+        {
             try
             {
                 viewportMap = new Dictionary<string, Guid>();
@@ -216,7 +304,8 @@ namespace morpho
             }
             catch (Exception ex)
             {
-                AddRuntimeMessage(GH_RuntimeMessageLevel.Error, ex.Message);
+                var errorForm = new ErrorTraceForm(this.Name, System.Reflection.MethodBase.GetCurrentMethod().Name, ex);
+                errorForm.ShowDialog();
             }
         }
 
@@ -278,14 +367,18 @@ namespace morpho
         /// You can add image files to your project resources and access them like this:
         /// return Resources.IconForThisComponent;
         /// </summary>
-        protected override Bitmap Icon {
-            get {
+        protected override Bitmap Icon
+        {
+            get
+            {
                 var assembly = System.Reflection.Assembly.GetExecutingAssembly();
-                if (false) {
+                if (false)
+                {
                     // use this when you need to list out the names of embedded resources
                     string[] result = assembly.GetManifestResourceNames();
                     Console.WriteLine("manifest resources:");
-                    foreach (var res in result) {
+                    foreach (var res in result)
+                    {
                         Console.WriteLine(res);
                     }
                 }
