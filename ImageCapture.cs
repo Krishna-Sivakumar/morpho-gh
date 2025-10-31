@@ -290,11 +290,25 @@ namespace morpho
                 foreach (var view in RhinoDoc.ActiveDoc.Views)
                 {
                     var tempButton = new ToolStripButton();
-                    // TODO Active viewport might not be what we need.
-                    tempButton.Text = view.ActiveViewport.Name;
+
+                    if (viewportMap.ContainsKey(view.ActiveViewport.Name))
+                    {
+                        int dupCounter = 1;
+                        while (viewportMap.ContainsKey($"{view.ActiveViewport.Name} ({dupCounter})"))
+                        {
+                            dupCounter += 1;
+                        }
+                        viewportMap.Add($"{view.ActiveViewport.Name} ({dupCounter})", view.ActiveViewportID);
+                        tempButton.Text = $"{view.ActiveViewport.Name} ({dupCounter})";
+                    }
+                    else
+                    {
+                        viewportMap.Add(view.ActiveViewport.Name, view.ActiveViewportID);
+                        tempButton.Text = view.ActiveViewport.Name;
+                    }
+
                     tempButton.Click += MenuClickHandler;
                     buttons.Add(tempButton);
-                    viewportMap.Add(view.ActiveViewport.Name, view.ActiveViewportID);
                 }
 
                 var label = new ToolStripLabel();
